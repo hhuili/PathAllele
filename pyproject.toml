@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pathallele"
+dynamic = ["version"]
+description = "Source-resolved haploid variants from pangenome graph paths"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{name = "Huihui Li"}]
+dependencies = ["numpy>=1.24,<3", "pysam>=0.22,<0.24"]
+classifiers = ["Development Status :: 4 - Beta", "Intended Audience :: Science/Research", "Topic :: Scientific/Engineering :: Bio-Informatics", "Operating System :: POSIX :: Linux", "Programming Language :: Python :: 3"]
+
+[project.scripts]
+pathallele = "pathallele.cli:main"
+
+[project.urls]
+Repository = "https://github.com/hhuili/PathAllele"
+Issues = "https://github.com/hhuili/PathAllele/issues"
+
+[tool.setuptools.dynamic]
+version = {attr = "pathallele.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pathallele = ["native/*.cpp"]
+
+[tool.ruff]
+line-length = 100

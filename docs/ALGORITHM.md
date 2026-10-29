@@ -1,0 +1,22 @@
+# Algorithm and evidence boundaries
+
+1. **Validate and spell physical paths.** Check node sequences, links, sample ownership and exact reference FASTA identity. Retain original query coordinates and orientation. Node identifiers are seeds; a repeated node is not automatically a unique genomic position.
+2. **Preserve mapping components.** Map complete path sequences with minimap2 asm20 and exact `=/X` CIGARs. Only primary records at the configured MAPQ threshold establish mapped context. Each PAF record keeps an identity. Within a record, resolve graph seeds by physical exact-match offsets and find anchors shared by every maximum-weight collinear chain. Terminal exact-sequence anchors can extend that record's context. A gap between two different PAF records never becomes an inferred continuous allele merely because their reference coordinates are ordered.
+3. **Resolve query ownership before alleles.** Query territory supported by competing primary components is clipped only inside unique exact matches. Ambiguous overlap stays unplaced. Separate physical copies covering one reference locus reduce callability. The caller does not choose whichever copy matches an external catalogue.
+4. **Recover bounded unaligned graph context.** Inspect still-unclaimed native query sequence in both orientations. Every reference-sharing step constrains the chain; repeated, opposite, noncollinear or unknown steps break it. Boundary sequences must be unique in the reference and query, including the opposite orientation. Only two-sided, short-gap graph contexts qualify. The default 1 kb bound is deliberately conservative; it is not a global variant-size filter. A genuinely unbounded contig end stays unresolved.
+5. **Extract complete source alleles.** Exact runs and the gaps within each accepted component partition its native sequence. Each differing gap retains its complete REF/ALT plus flanks and occurrence-specific internal homology. Every other query base is explicitly recorded as unbounded. Source observations are aggregated only when sequence, bounds, homology and orientation class agree.
+6. **Align and replay.** Align bounded sequence gaps with vcflib BiWFA in both directions using penalties `0,19,39,3,81,1`. Reference-normalize edits with bcftools. Each decomposition must replay its native allele exactly. Where directional homology remains unstable, retain a complete compound allele instead of asserting arbitrary primitive positions. Explicit native inversion/complex contexts retain complete representations.
+7. **Joint projection.** Build sample-specific edit and coverage models. A reference genotype requires appropriate coverage and flanks. Competing occurrences, unsupported flanks, partial sequence, incompatible edits and ambiguous representation produce missing genotypes with FT reasons. Equivalent compound representations are unified only on exact sequence replay. No allele-frequency threshold, phenotype, MSA, Linear VCF, gene name or diagnostic position is used in calling.
+8. **Validate and serialize.** Normalize representation, retain observed ALT alleles, recalculate tags, sort/index, then verify sources and final genotype invariants. Save input, code, dependency and output hashes.
+
+## Why the component rule matters
+
+A path can align over a long ordinary region, with a short unrelated tail aligning elsewhere. Flattening both primary records into one exact-match list can manufacture a deletion across tens of kilobases and falsely claim continuous coverage. PathAllele keeps separate components. This restriction does not discard a large deletion supported by one continuous primary CIGAR. These are separate regression tests.
+
+## Representation versus absence
+
+A nucleotide inside a sequence-supported compound allele is not necessarily a separately emitted SNV. A catalogue-only comparison must report that representation difference separately from unbounded or unresolved source sequence. An unplaced base is not reference evidence. These distinctions also apply when a caller has more entries than another caller.
+
+## Complexity
+
+The graph is read in two passes. Native query ownership arrays are per path. The joint projection currently uses dense arrays and prefix sums proportional to cohort size × reference length, with a preflight estimate and configurable cap. This is suitable for compact haploid genomes; chromosome-scale, polyploid or streaming implementations require a separate design and validation effort.
