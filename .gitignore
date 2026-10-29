@@ -20,3 +20,4 @@ PROJECT.md
 migration.json
 scripts/
 demo/
+.DS_Store
