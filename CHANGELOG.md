@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0rc2
+
+* Define per-ALT edit `TYPE` separately from the 50-bp `SIZECLASS` boundary, including large equal-length MNVs and unequal replacements.
+* Keep hierarchy unassessed at header level; clarify that `PID` denotes source contexts, not nested parent variants.
+* Remove repeated constants and derivable metadata; keep only the compressed/indexed final VCF at output root, with raw serialization under `work/`.
+* Validate classification for every ALT and test mixed multiallelic ordering, padding and size boundaries. Calling, allele sequence and genotype rules are unchanged.
+
 ## 0.1.0rc1
 
 First independent research pre-release, extracted from a native graph-path calling workflow.

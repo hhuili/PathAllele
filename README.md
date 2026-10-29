@@ -4,7 +4,7 @@
 
 PathAllele reads sequence-resolved GFA1 paths and a reference FASTA, extracts physically bounded alleles, and projects a joint VCF with explicit missing-genotype reasons. Every emitted ALT is checked against a sequence-derived source model. The caller uses minimap2 for occurrence context and vcflib's BiWFA engine for allele alignment. It does not run `vg deconstruct` or `vcfwave`, and is not an implementation of the HPRC calling workflow.
 
-**Status: 0.1.0rc1, research pre-release.** The supported scope is one reference, haploid samples, and compact genomes. Synthetic tests establish specified algorithmic behavior; biological sensitivity and specificity require independent validation. The current dense projection uses memory proportional to sample count × reference length. Whole human cohorts, diploid genotypes, GFA W records, unresolved segment sequences, and overlapping graph segments are outside this release's scope.
+**Status: 0.1.0rc2, research pre-release.** The supported scope is one reference, haploid samples, and compact genomes. Synthetic tests establish specified algorithmic behavior; biological sensitivity and specificity require independent validation. The current dense projection uses memory proportional to sample count × reference length. Whole human cohorts, diploid genotypes, GFA W records, unresolved segment sequences, and overlapping graph segments are outside this release's scope.
 
 ## Install on Linux
 
@@ -51,8 +51,8 @@ pathallele call --graph cohort.gfa --reference reference.fa --samples samples.tx
 
 | File | Meaning |
 | --- | --- |
-| `Graph.vcf.gz` / `.tbi` | Joint, reference-normalized haploid VCF; GT/FT and AC/AN/AF/NS |
-| `Graph.paths.tsv.gz` | Physical path intervals, alignment component, strand, source class and parent allele |
+| `Graph.vcf.gz` / `.tbi` | Joint, reference-normalized haploid VCF; GT/FT; AC/AN/AF; per-ALT TYPE and SIZECLASS |
+| `Graph.paths.tsv.gz` | Physical path intervals, alignment component, strand, source class and source allele |
 | `Graph.alleles.tsv.gz` | Complete bounded source sequences |
 | `Graph.anchors.tsv.gz` | Source-relative retained homology anchors |
 | `Graph.alignment_ambiguity.tsv.gz` | Direction-dependent unresolved source positions |
@@ -63,6 +63,14 @@ pathallele call --graph cohort.gfa --reference reference.fa --samples samples.tx
 Use a fresh output directory. To resume an interrupted run, repeat the identical command with `--resume`. Completed stages are reused only after checking input, code, options, executable identity and stage-output hashes. A changed dependency or input is an error, not an implicit rerun. An output lock prevents concurrent writers. Failed stage evidence remains available in the log; that stage's own temporary projection work is replaced on an authorized resume.
 
 Unknown coverage, competing physical copies, ambiguous alignment, overlapping edits and partial sequence remain missing. Equal-length substitutions can be decomposed into SNVs; unstable compound alleles retain their full sequence. Exact catalogue counts alone therefore do not measure detection accuracy. See [validation scope](docs/VALIDATION.md).
+
+## Variant classification
+
+`TYPE` is per ALT (`Number=A`): `SNV`, `MNV`, `INS`, `DEL`, or `REPLACEMENT`, after removing common padding. `SIZECLASS` independently records `SMALL` or `SV` (larger edited REF/ALT length ≥50 bp). A 50-bp MNV is therefore `TYPE=MNV;SIZECLASS=SV`; net length change alone does not define size.
+
+The compact VCF retains `SVLEN`, `NATIVE` orientation evidence, and `PID` links to source-context tables, alongside standard counts and genotypes. Derivable lengths/classes and repeated constant fields are omitted. Uncompressed serialization stays in `work/`; the deliverable is BGZF-compressed and tabix-indexed. See [the VCF schema](docs/VCF.md).
+
+Graph hierarchy is a separate dimension: this reference-projected caller does not assign nested parents. This limitation is recorded once in the header. `PID` does not mean a biological parent variant. Independent graph-nested catalogues can overlap sequence carried inside a VCF ALT; do not add their counts without occurrence-aware deduplication.
 
 ## Development
 

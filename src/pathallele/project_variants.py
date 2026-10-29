@@ -430,18 +430,18 @@ def main(argv=None):
         "##fileformat=VCFv4.2",
         f"##source=PathAllele-{__version__}",
         f"##contig=<ID={args.reference.read_text().splitlines()[0][1:].split()[0]},length={length}>",
-        '##INFO=<ID=PID,Number=.,Type=String,Description="Supporting native path intervals">',
-        '##INFO=<ID=SOURCE,Number=1,Type=String,Description="PATH_INTERVAL">',
-        '##INFO=<ID=TYPE,Number=1,Type=String,Description="SNP or EDIT">',
+        '##INFO=<ID=PID,Number=.,Type=String,Description="Supporting native path source contexts, not nested parent loci">',
         '##INFO=<ID=SVLEN,Number=A,Type=Integer,Description="ALT minus REF length">',
         '##INFO=<ID=NATIVE,Number=A,Type=String,Description="Native orientation class; SEQUENCE, INV or COMPLEX">',
-        '##INFO=<ID=NBASES,Number=A,Type=Integer,Description="Unknown bases in ALT">',
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Haploid genotype">',
         '##FORMAT=<ID=FT,Number=1,Type=String,Description="PASS; PARTIAL_SEQUENCE; AMBIGUOUS_ALIGNMENT indicates alternative concrete base mappings; other statuses are unresolved">',
     ]
+    from .variant_schema import VCF_HEADERS, classification_info
+
+    header.extend(VCF_HEADERS)
     counts = Counter()
     positive = [set() for _ in samples]
-    with (args.output / "Graph.vcf").open("w") as f:
+    with (args.work / "Graph.raw.vcf").open("w") as f:
         f.write(
             "\n".join(header)
             + "\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
@@ -467,11 +467,10 @@ def main(argv=None):
                     "+".join(sorted(event_kinds.get((s, e, aa), {"SEQUENCE"}))) for aa in alts
                 ),
                 PID=",".join(sorted(origins[s, e, kind])),
-                SOURCE="PATH_INTERVAL",
-                TYPE=kind,
                 SVLEN=",".join((str(len(a) - len(vr)) for a in va)),
-                NBASES=",".join((str(sum((b not in DNA for b in a))) for a in va)),
             )
+            for tag, values in classification_info(vr, va).items():
+                info[tag] = ",".join(map(str, values)) if isinstance(values, tuple) else values
             cells = []
             for si, (a, ft) in enumerate(states):
                 cells.append(("." if a is None else str(lookup[a])) + ":" + ft)

@@ -255,14 +255,16 @@ def call(args):
                         [
                             output / n
                             for n in (
-                                "Graph.vcf",
                                 "Graph.alleles.tsv.gz",
                                 "Graph.anchors.tsv.gz",
                                 "Graph.alignment_ambiguity.tsv.gz",
                                 "summary.projection.json",
                             )
                         ]
-                        + [alignment / n for n in ("aligned.pkl", "projection.pkl")],
+                        + [
+                            alignment / n
+                            for n in ("aligned.pkl", "projection.pkl", "Graph.raw.vcf")
+                        ],
                     )
                 if not stage_done("vcf"):
                     checked_pipeline(
@@ -275,11 +277,11 @@ def call(args):
                                 str(work / "reference.fa"),
                                 "-c",
                                 "e",
-                                str(output / "Graph.vcf"),
+                                str(work / "projection/Graph.raw.vcf"),
                                 "-Ou",
                             ],
                             ["bcftools", "sort", "-T", str(work / "sort.XXXXXX"), "-Ou"],
-                            ["bcftools", "+fill-tags", "-Ou", "--", "-t", "AC,AN,AF,NS"],
+                            ["bcftools", "+fill-tags", "-Ou", "--", "-t", "AC,AN,AF"],
                             [
                                 "bcftools",
                                 "view",

@@ -90,6 +90,10 @@ def validate(output, graph):
     alleles_seen = set()
     last = -1
     with pysam.VariantFile(output / "Graph.vcf.gz") as vcf:
+        from .variant_schema import classification_info
+
+        for tag in ("TYPE", "SIZECLASS"):
+            require(vcf.header.info[tag].number == "A", "Classification must be per ALT: " + tag)
         require(list(vcf.header.samples) == samples, "VCF cohort order")
         require(list(vcf.header.contigs) == [graph.chrom], "VCF reference identity")
         for record in vcf:
@@ -98,6 +102,8 @@ def validate(output, graph):
             require(record.id not in ids, "duplicate VCF ID")
             ids.add(record.id)
             require(record.ref == reference[record.start : record.stop], "VCF reference sequence")
+            for tag, expected in classification_info(record.ref, record.alts).items():
+                require(record.info[tag] == expected, "Allele classification mismatch: " + tag)
             allele_edits = {0: None}
             ac = [0] * len(record.alts)
             an = 0
