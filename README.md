@@ -2,9 +2,9 @@
 
 **Source-resolved haploid variants from pangenome graph paths.**
 
-PathAllele reads sequence-resolved GFA1 paths and a reference FASTA, extracts physically bounded alleles, and projects a joint VCF with explicit missing-genotype reasons. Every emitted ALT is checked against a sequence-derived source model. The caller uses minimap2 for occurrence context and vcflib's BiWFA engine for allele alignment. It does not run `vg deconstruct` or `vcfwave`, and is not an implementation of the HPRC calling workflow.
+PathAllele reads sequence-resolved GFA1 paths and a reference FASTA, extracts physically bounded alleles, and projects a joint VCF with explicit missing-genotype reasons. Every emitted ALT is checked against a sequence-derived source model. The caller uses minimap2 to resolve physical occurrence context. Graph identity and unique internal sequence anchors define complete allele units before variant classification; a gapped CIGAR does not determine their boundaries or edit types. A separate, direction-checked BiWFA projection retains assessable small changes when a physical source allele crosses unresolved reference territory. It does not run `vg deconstruct` or `vcfwave`, and is not an implementation of the HPRC calling workflow.
 
-**Status: 0.1.0rc2, research pre-release.** The supported scope is one reference, haploid samples, and compact genomes. Synthetic tests establish specified algorithmic behavior; biological sensitivity and specificity require independent validation. The current dense projection uses memory proportional to sample count × reference length. Whole human cohorts, diploid genotypes, GFA W records, unresolved segment sequences, and overlapping graph segments are outside this release's scope.
+**Status: 0.2.0rc1, research pre-release.** The supported scope is one reference, haploid samples, and compact genomes. Synthetic tests establish specified algorithmic behavior; biological sensitivity and specificity require independent validation. The current dense projection uses memory proportional to sample count × reference length. Whole human cohorts, diploid genotypes, GFA W records, unresolved segment sequences, and overlapping graph segments are outside this release's scope.
 
 ## Install on Linux
 
@@ -18,7 +18,7 @@ bash environments/build_native.sh
 pathallele doctor --aligner "$PWD/tools/pathallele-align"
 ```
 
-The small native adapter must be built against the installed vcflib/WFA2 libraries. The build helper downloads a pinned, checksum-verified WFA2 header tree; it does not modify third-party sources. To supply existing dependencies manually, use `pathallele build-aligner --help`. Python-only tests also run on macOS; native calling is currently tested on Linux.
+The small BiWFA adapter is used for local projection in partially assessable source contexts. It does not define the complete allele catalogue or classify MNV/replacement alleles. The build helper verifies pinned WFA2 headers; dependencies are separately installed. The full calling workflow is tested on Linux; unit tests also run on macOS.
 
 ## Synthetic example
 
@@ -45,16 +45,18 @@ pathallele call --graph cohort.gfa --reference reference.fa --samples samples.tx
 * For other path names, provide `--path-map mapping.tsv` with `path` and `sample` columns. An explicit map declares haploid ownership; the user is responsible for assigning biological sample identities correctly.
 * Sample paths may contain IUPAC ambiguity codes. Bounded unresolved sequence is retained as source evidence; it cannot produce a confident genotype through those bases.
 
-`--minimum-anchor` defaults to 31 bp, `--mapping-k` to 19 bp, and `--minimum-mapq` to 20. The graph-only fallback permits gaps up to 1,000 bp and requires unique anchors in both orientations. This bound applies to unmapped graph contexts, not deletions supported inside one primary alignment. See [the algorithm](docs/ALGORITHM.md) for their distinct roles.
+`--sequence-anchor` (unique internal homology within an accepted source interval) defaults to 31 bp. `--minimum-anchor` defaults to 31 bp, `--mapping-k` to 19 bp, and `--minimum-mapq` to 20. The graph-only fallback permits gaps up to 1,000 bp and requires unique anchors in both orientations. This bound applies to unmapped graph contexts, not deletions supported inside one primary alignment. See [the algorithm](docs/ALGORITHM.md) for their distinct roles.
 
 ## Outputs and restart
 
 | File | Meaning |
 | --- | --- |
-| `Graph.vcf.gz` / `.tbi` | Joint, reference-normalized haploid VCF; GT/FT; AC/AN/AF; per-ALT TYPE and SIZECLASS |
+| `Graph.vcf.gz` / `.tbi` | Joint, source-bounded normalized haploid VCF; GT/FT; AC/AN/AF; per-ALT TYPE and SIZECLASS |
 | `Graph.paths.tsv.gz` | Physical path intervals, alignment component, strand, source class and source allele |
 | `Graph.alleles.tsv.gz` | Complete bounded source sequences |
-| `Graph.anchors.tsv.gz` | Source-relative retained homology anchors |
+| `Graph.anchors.tsv.gz` | Source-relative graph and unique sequence homology anchors |
+| `Graph.loci.tsv.gz` | Complete observed REF/ALT sequence catalogue at each joint locus |
+| `Graph.locus_genotypes.npz` | Actual joint sequence indices, compact projection indices and their separate missingness reasons |
 | `Graph.alignment_ambiguity.tsv.gz` | Direction-dependent unresolved source positions |
 | `summary.*.json` | Source and projection counts |
 | `run.json`, `validation.json`, `run.log` | Input/code/tool hashes, stage status, invariants, diagnostics |
@@ -62,7 +64,7 @@ pathallele call --graph cohort.gfa --reference reference.fa --samples samples.tx
 
 Use a fresh output directory. To resume an interrupted run, repeat the identical command with `--resume`. Completed stages are reused only after checking input, code, options, executable identity and stage-output hashes. A changed dependency or input is an error, not an implicit rerun. An output lock prevents concurrent writers. Failed stage evidence remains available in the log; that stage's own temporary projection work is replaced on an authorized resume.
 
-Unknown coverage, competing physical copies, ambiguous alignment, overlapping edits and partial sequence remain missing. Equal-length substitutions can be decomposed into SNVs; unstable compound alleles retain their full sequence. Exact catalogue counts alone therefore do not measure detection accuracy. See [validation scope](docs/VALIDATION.md).
+Unknown coverage, competing physical copies, ambiguous alignment, overlapping edits and partial sequence remain missing. Complete mixed units retain their full sequence; separate graph-anchored SNVs/INDELs remain independent. Compact VCF records can overlap in coordinate span, but called ALT edits cannot overlap within a sample. A reference backbone at a compound record is allowed only when other explicitly called edits reconstruct that sample's complete observed allele. The sidecar always retains the actual complete sequence and joint genotype; a nonreference haplotype is never erased from that catalogue. Exact catalogue counts alone therefore do not measure detection accuracy. See [validation scope](docs/VALIDATION.md).
 
 ## Variant classification
 
@@ -77,7 +79,6 @@ Graph hierarchy is a separate dimension: this reference-projected caller does no
 ```bash
 python -m pip install -e .
 python -m unittest discover -s tests -v
-PATHALLELE_ALIGNER="$PWD/tools/pathallele-align" python -m unittest discover -s tests -v
 ```
 
-The second command runs the native end-to-end tests as well. CI tests installation, unit behavior, native compilation, sequence reconstruction and empty-catalogue handling. See [contribution guidance](CONTRIBUTING.md). Original code is [MIT licensed](LICENSE); dependencies retain their [own notices](THIRD_PARTY.md). Cite the software version and commit with [CITATION.cff](CITATION.cff).
+Set `PATHALLELE_ALIGNER` to the compiled adapter to run integration tests with minimap2, bcftools and samtools. CI tests installation, unit behavior, full sequence reconstruction, complete joint alleles, missingness and empty-catalogue handling. See [contribution guidance](CONTRIBUTING.md). Original code is [MIT licensed](LICENSE); dependencies retain their [own notices](THIRD_PARTY.md). Cite the software version and commit with [CITATION.cff](CITATION.cff).

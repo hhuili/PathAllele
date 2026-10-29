@@ -4,9 +4,11 @@ A successful run means all implemented invariants pass; it does not mean every b
 
 * Every selected native path base belongs to exactly one MATCH, bounded ALLELE/PARTIAL_SEQUENCE, or UNBOUNDED interval, in original query coordinates.
 * Every bounded REF/ALT sequence is checked against its actual graph-path occurrence, including reverse orientation. Carrier identities agree with these observations.
+* Joint source models replay the unnormalized physical alleles in every fully resolved source window, detecting changes lost when independently normalized repeat edits collapse. Windows crossing unresolved territory are explicitly counted.
 * Every normalized source decomposition replays the complete source allele, including reference sequence needed after shifting an indel.
 * Every final ALT genotype has a sequence-derived model witness; its serialization agrees with the positive projection model. Confident genotypes require resolved coverage.
 * VCF sample order, reference bases, sorting, record/allele uniqueness, haploid GT indices and AC/AN counts are checked. Unknown sequence does not become confident ALT or reference calls.
+* Every resolved joint genotype replays its complete observed source sequence. Every confidently projected compound genotype additionally replays from all emitted VCF components. Complete sequence GT and projected event GT are independently checked; catalogued ALT sequences must be observed.
 * Full source-to-final haplotype completeness is **not** implied. Some models remain unrepresented because of competing copies, interacting events, missing flanks or unresolved homology. Their counts and FT reasons are retained. Synthetic integration tests additionally compare final reconstructed complete sequences with independent known truth.
 
 The reproducible synthetic suite covers cross-PAF false bridges, supported within-PAF long deletion, graph-only tail recovery, true unbounded ends, physical overlap, opposite graph steps, unknown sequence, overlapping-word uniqueness, reverse CIGAR coordinates, invalid graph inputs, SNV/INDEL reconstruction, an all-reference empty callset, and restart integrity. Real-cohort diagnostics are maintained outside the software package; no diagnostic target list enters production calling.

@@ -5,6 +5,6 @@ type: software
 authors:
   - family-names: Li
     given-names: Huihui
-version: 0.1.0rc2
+version: 0.2.0rc1
 license: MIT
 repository-code: "https://github.com/hhuili/PathAllele"

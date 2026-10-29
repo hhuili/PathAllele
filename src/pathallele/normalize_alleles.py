@@ -5,6 +5,24 @@ from pathlib import Path
 from .allele_model import Edit, atomic_edits, replay, vcf_alleles
 
 
+def bounded_indel_normalization(reference, edits):
+    """Left-align simple indels inside this source's physical flanking bases."""
+    result = []
+    for e in edits:
+        s, t, alt = e.start, e.end, e.alt
+        if s == t and alt:
+            while s > 1 and reference[s - 1] == alt[-1]:
+                alt = alt[-1] + alt[:-1]
+                s -= 1
+                t -= 1
+        elif not alt and s < t:
+            while s > 1 and reference[s - 1] == reference[t - 1]:
+                s -= 1
+                t -= 1
+        result.append(Edit(s, t, alt, e.complex))
+    return result
+
+
 def normalize(parents, edits, reference, reference_path, work):
     work.mkdir()
     source = work / "input.vcf"
@@ -75,6 +93,18 @@ def normalize(parents, edits, reference, reference_path, work):
                 )
             except ValueError:
                 valid = False
+            # Independent source alleles must not normalize across their
+            # physical boundary and collapse a second repeat-copy change.
+            bounded = all(1 <= e.start <= e.end <= len(b["alleles"][0]) - 1 for e in es)
+            if valid and not bounded:
+                candidate = bounded_indel_normalization(b["alleles"][0], edits[pi][ai])
+                try:
+                    valid = replay(b["alleles"][0], candidate) == allele
+                except ValueError:
+                    valid = False
+                if valid:
+                    result[pi][ai] = candidate
+                    continue
             if not valid:
                 failed.add((pi, ai))
                 result[pi][ai] = edits[pi][ai]
@@ -161,7 +191,7 @@ def preserve_complex_gaps(
     return out_f, out_r, changed
 
 
-def cohere_complex_models(models, reference):
+def cohere_complex_models(models, reference, known=None, complete_alleles=()):
     """Use one complete representation for identical observed complex alleles.
 
     Promote an equivalent primitive haplotype only on exact sequence replay.
@@ -181,6 +211,9 @@ def cohere_complex_models(models, reference):
                 and not (set(e.alt) - set("ACGT"))
             ):
                 sequences[e.start, e.end].add(e.alt)
+    for e in complete_alleles:
+        if e.complex and not (set(e.alt) - set("ACGT")):
+            sequences[e.start, e.end].add(e.alt)
     loci = sorted(sequences, key=lambda z: (-(z[1] - z[0]), z))
     promoted = []
     for si, model in enumerate(models):
@@ -189,6 +222,8 @@ def cohere_complex_models(models, reference):
             for k in range(e.start // 1000, e.end // 1000 + 1):
                 bins[k].add(e)
         for s, t in loci:
+            if known is not None and not (known[si, s:t] == 1).all():
+                continue
             focal = Edit(s, t, "")
             local = set().union(
                 *(bins.get(k, set()) for k in range(max(0, s - 1) // 1000, (t + 1) // 1000 + 1))
@@ -216,3 +251,26 @@ def cohere_complex_models(models, reference):
                 bins[k].add(replacement)
             promoted.append((si, s, t, len(local)))
     return promoted
+
+
+def close_touching_units(reference, edits):
+    """A normalized boundary with no retained homology cannot split two units."""
+    groups = []
+    for edit in sorted(set(edits)):
+        if groups and edit.start <= max(e.end for e in groups[-1]):
+            groups[-1].append(edit)
+        else:
+            groups.append([edit])
+    result = []
+    for group in groups:
+        if len(group) == 1:
+            result.extend(group)
+            continue
+        s = min(e.start for e in group)
+        t = max(e.end for e in group)
+        alt = replay(
+            reference[s:t], [Edit(e.start - s, e.end - s, e.alt, e.complex) for e in group]
+        )
+        result.extend(atomic_edits(s, reference[s:t], alt, keep_complex=True))
+    assert replay(reference, result) == replay(reference, edits)
+    return result

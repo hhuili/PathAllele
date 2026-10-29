@@ -89,12 +89,12 @@ def call(args):
     from .sources import build_sources
     from .validation import validate
 
-    if (
-        min(args.threads, args.jobs, args.minimum_anchor, args.mapping_k, args.maximum_graph_gap)
-        <= 0
-    ):
+    if min(args.threads, args.minimum_anchor, args.mapping_k, args.maximum_graph_gap) <= 0:
         raise ValueError("Thread counts and anchor/gap lengths must be positive")
-    if not 0 <= args.minimum_mapq <= 60 or args.minimum_anchor < 19 or args.mapping_k < 19:
+    if (
+        not 0 <= args.minimum_mapq <= 60
+        or min(args.minimum_anchor, args.mapping_k, args.sequence_anchor) < 19
+    ):
         raise ValueError("MAPQ must be 0..60; supported sequence anchors are at least 19 bp")
     if sys.flags.optimize:
         raise ValueError("Run without Python -O; scientific invariant checks must remain enabled")
@@ -123,6 +123,7 @@ def call(args):
             "minimum_anchor",
             "mapping_k",
             "maximum_graph_gap",
+            "sequence_anchor",
             "minimum_mapq",
             "reference_path",
             "max_matrix_gb",
@@ -241,10 +242,12 @@ def call(args):
                             str(output),
                             "--work",
                             str(alignment),
-                            "--jobs",
-                            str(args.jobs),
                             "--aligner",
                             tools["align_alleles"]["path"],
+                            "--jobs",
+                            str(args.jobs),
+                            "--sequence-anchor",
+                            str(args.sequence_anchor),
                         ],
                         stdout=log,
                         stderr=log,
@@ -258,12 +261,20 @@ def call(args):
                                 "Graph.alleles.tsv.gz",
                                 "Graph.anchors.tsv.gz",
                                 "Graph.alignment_ambiguity.tsv.gz",
+                                "Graph.loci.tsv.gz",
+                                "Graph.locus_genotypes.npz",
                                 "summary.projection.json",
                             )
                         ]
                         + [
                             alignment / n
-                            for n in ("aligned.pkl", "projection.pkl", "Graph.raw.vcf")
+                            for n in (
+                                "aligned.pkl",
+                                "projection.pkl",
+                                "partial_projection.pkl",
+                                "model_validation.json",
+                                "Graph.raw.vcf",
+                            )
                         ],
                     )
                 if not stage_done("vcf"):
@@ -347,12 +358,20 @@ def main(argv=None):
         run.add_argument("--" + key, type=Path, required=True)
     run.add_argument("--path-map", type=Path)
     run.add_argument("--reference-path")
-    run.add_argument("--aligner", required=True)
-    run.add_argument("--threads", type=int, default=16)
+    run.add_argument(
+        "--aligner", required=True, help="BiWFA adapter for partial small-variant projection"
+    )
     run.add_argument("--jobs", type=int, default=8)
+    run.add_argument("--threads", type=int, default=16)
     run.add_argument("--minimum-anchor", type=int, default=31)
     run.add_argument("--mapping-k", type=int, default=19)
     run.add_argument("--maximum-graph-gap", type=int, default=1000)
+    run.add_argument(
+        "--sequence-anchor",
+        type=int,
+        default=31,
+        help="Minimum unique internal sequence anchor inside a physical allele",
+    )
     run.add_argument("--minimum-mapq", type=int, default=20)
     run.add_argument("--max-matrix-gb", type=float, default=8)
     run.add_argument("--resume", action="store_true")
@@ -392,6 +411,8 @@ def main(argv=None):
             manifest = json.loads((output / "run.json").read_text())
             if manifest.get("status") != "complete":
                 raise ValueError("Run is not complete")
+            if manifest["signature"]["version"] != __version__:
+                raise ValueError("Validate with the PathAllele version recorded in run.json")
             verify_manifest(output, manifest)
             inputs = manifest["signature"]["inputs"]
             for item in inputs.values():

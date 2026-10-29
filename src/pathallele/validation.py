@@ -7,6 +7,7 @@ Only read work pickles created by this trusted run (never third-party pickles).
 from collections import Counter, defaultdict
 import csv
 import gzip
+import json
 import pickle
 import numpy as np
 import pysam
@@ -31,8 +32,11 @@ def validate(output, graph):
     samples_index = {sample: i for i, sample in enumerate(samples)}
     observed = defaultdict(set)
     partitions = defaultdict(list)
-    stats = Counter()
+    stats = Counter(json.loads((work / "projection/model_validation.json").read_text()))
     reference = graph.reference
+    from .validate_catalogue import load_catalogue, validate_catalogue
+
+    joint, joint_alleles, joint_index = load_catalogue(output, samples, reference)
     current_name = None
     query = ""
     with gzip.open(output / "Graph.paths.tsv.gz", "rt") as stream:
@@ -97,6 +101,8 @@ def validate(output, graph):
         require(list(vcf.header.samples) == samples, "VCF cohort order")
         require(list(vcf.header.contigs) == [graph.chrom], "VCF reference identity")
         for record in vcf:
+            ji = joint_index[record.id]
+            js, je = map(int, joint["bounds"][ji])
             require(record.start >= last, "VCF sorting")
             last = record.start
             require(record.id not in ids, "duplicate VCF ID")
@@ -119,14 +125,28 @@ def validate(output, graph):
                 ft = call.get("FT")
                 require(len(gt) == 1, "non-haploid GT")
                 value = gt[0]
+                projected = int(joint["projected_gt"][ji, si])
+                require((value is None) == (projected < 0), "VCF differs from joint projection")
                 if value is None:
                     require(ft != "PASS", "missing GT marked PASS")
                     stats["missing_" + str(ft)] += 1
                     continue
                 require(ft == "PASS", "resolved GT without PASS")
+                sequence = record.alleles[value]
+                if joint["kinds"][ji] != "SNP":
+                    sequence = sequence[1:] if js > 0 else sequence[:-1]
+                require(
+                    sequence == joint_alleles[record.id][projected], "VCF differs from joint allele"
+                )
                 an += 1
                 require(
-                    bool(np.all(callable_mask[si, record.start : record.stop])),
+                    bool(
+                        np.all(
+                            callable_mask[si, js:je]
+                            if js < je
+                            else callable_mask[si, max(0, js - 1) : min(len(reference), je + 1)]
+                        )
+                    ),
                     "confident GT in unresolved coverage",
                 )
                 if value:
@@ -136,7 +156,9 @@ def validate(output, graph):
                         (edit.start, edit.end, edit.alt) in model_keys[si],
                         "ALT has no sequence-derived model witness",
                     )
-                    emitted[si].add((edit.start, edit.end, edit.alt))
+                    key = (edit.start, edit.end, edit.alt)
+                    require(key not in emitted[si], "duplicate ALT genotype")
+                    emitted[si].add(key)
                     ac[value - 1] += 1
                     stats["source_supported_ALT_genotypes"] += 1
                 else:
@@ -151,6 +173,19 @@ def validate(output, graph):
         expected = {(e.start, e.end, e.alt) for e in positive[si]}
         require(emitted[si] == expected, "final VCF differs from positive projection model")
         stats["unemitted_model_edits"] += len(model_keys[si] - emitted[si])
+        previous = None
+        for s, e, alt in sorted(emitted[si]):
+            require(
+                previous is None
+                or (s >= previous[1] and not (s == e == previous[0] == previous[1])),
+                "overlapping emitted ALT genotypes",
+            )
+            previous = (s, e)
+    with (work / "coverage.pkl").open("rb") as stream:
+        coverage, uncertain, chains = pickle.load(stream)
+    stats.update(
+        validate_catalogue(joint, joint_alleles, models, emitted, callable_mask, reference, chains)
+    )
     return dict(
         status="pass",
         samples=len(samples),

@@ -1,5 +1,7 @@
 import importlib.util
+import shutil
 import os
+import random
 from pathlib import Path
 import subprocess
 import sys
@@ -42,8 +44,9 @@ class InputTests(unittest.TestCase):
 
 
 @unittest.skipUnless(
-    os.environ.get("PATHALLELE_ALIGNER"),
-    "Native integration needs PATHALLELE_ALIGNER and calling dependencies",
+    os.environ.get("PATHALLELE_ALIGNER")
+    and all(shutil.which(tool) for tool in ("minimap2", "bcftools", "samtools")),
+    "Integration needs PATHALLELE_ALIGNER, minimap2, bcftools and samtools",
 )
 class IntegrationTests(unittest.TestCase):
     def run_fixture(self, all_reference=False):
@@ -64,12 +67,10 @@ class IntegrationTests(unittest.TestCase):
                 str(data / "samples.txt"),
                 "--output",
                 str(output),
-                "--threads",
-                "2",
-                "--jobs",
-                "2",
                 "--aligner",
                 os.environ["PATHALLELE_ALIGNER"],
+                "--threads",
+                "2",
             ]
             run = subprocess.run(command, text=True, capture_output=True)
             if run.returncode:
@@ -118,6 +119,82 @@ class IntegrationTests(unittest.TestCase):
 
     def test_all_reference_empty_catalogue(self):
         self.run_fixture(True)
+
+    def test_complete_alleles_and_independent_snv_backbones(self):
+        with tempfile.TemporaryDirectory(prefix="pathallele joint ") as temp:
+            root = Path(temp)
+            rng = random.Random(912)
+            flank = lambda: "".join(rng.choice("ACGT") for _ in range(2000))
+            left, right = flank(), flank()
+            ref, alt = "A" * 60 + "CG", "CG" + "T" * 59 + "C"
+            snv = ref[:30] + "G" + ref[31:]
+            partial = ref[:10] + "N" * 10 + ref[20:]
+            nodes = dict(left=left, right=right, ref=ref, alt=alt, snv=snv, partial=partial)
+            paths = {"ref#0#chrom": ["left+", "ref+", "right+"]}
+            for name, mid in [
+                ("same", "ref"),
+                ("changed", "alt"),
+                ("small", "snv"),
+                ("unknown", "partial"),
+            ]:
+                paths[name + "#1#contig"] = ["left+", mid + "+", "right+"]
+            paths["reverse#1#contig"] = ["right-", "alt-", "left-"]
+            links = {(a, b) for walk in paths.values() for a, b in zip(walk, walk[1:])}
+            lines = ["H\tVN:Z:1.0"] + [f"S\t{n}\t{s}" for n, s in nodes.items()]
+            lines += [f"L\t{a[:-1]}\t{a[-1]}\t{b[:-1]}\t{b[-1]}\t0M" for a, b in sorted(links)]
+            lines += ["P\t" + n + "\t" + ",".join(w) + "\t*" for n, w in paths.items()]
+            (root / "graph.gfa").write_text("\n".join(lines) + "\n")
+            (root / "reference.fa").write_text(">ref\n" + left + ref + right + "\n")
+            samples = ["same", "changed", "small", "unknown", "reverse"]
+            (root / "samples.txt").write_text("\n".join(samples) + "\n")
+            out = root / "output"
+            cmd = [
+                sys.executable,
+                "-m",
+                "pathallele.cli",
+                "call",
+                "--graph",
+                str(root / "graph.gfa"),
+                "--reference",
+                str(root / "reference.fa"),
+                "--samples",
+                str(root / "samples.txt"),
+                "--output",
+                str(out),
+                "--aligner",
+                os.environ["PATHALLELE_ALIGNER"],
+                "--threads",
+                "2",
+            ]
+            result = subprocess.run(cmd, text=True, capture_output=True)
+            self.assertEqual(
+                result.returncode, 0, result.stderr + "\n" + (out / "run.log").read_text()
+            )
+            edits = {s: [] for s in samples}
+            with pysam.VariantFile(out / "Graph.vcf.gz") as v:
+                records = [r.copy() for r in v]
+            compound = next(r for r in records if "MNV" in r.info["TYPE"])
+            self.assertEqual(compound.samples["small"]["GT"], (0,))
+            self.assertEqual(compound.samples["unknown"]["GT"], (None,))
+            for r in records:
+                for s in samples:
+                    gt = r.samples[s]["GT"][0]
+                    if gt:
+                        edits[s].append(trim_edit(r.start, r.ref, r.alts[gt - 1]))
+            for sample, sequence in [
+                ("same", ref),
+                ("small", snv),
+                ("changed", alt),
+                ("reverse", alt),
+            ]:
+                self.assertEqual(replay(left + ref + right, edits[sample]), left + sequence + right)
+            import numpy as np
+
+            joint = np.load(out / "Graph.locus_genotypes.npz")
+            i = list(joint["loci"]).index(compound.id)
+            self.assertGreater(joint["gt"][i, 2], 0)
+            self.assertEqual(joint["projected_gt"][i, 2], 0)
+            self.assertEqual(joint["gt"][i, 3], -1)
 
 
 if __name__ == "__main__":

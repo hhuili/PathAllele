@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0rc1
+
+- Define complete allele units from resolved physical graph context and unique internal sequence anchors before classifying edits. Equal nonempty lengths are MNV; unequal nonempty lengths are replacement. Size and graph orientation remain separate dimensions.
+- Save every assessable observed sequence and its joint genotype in compressed catalogue sidecars. Keep the main VCF compact, with sequence-verified component projection and explicit missingness.
+- Retain stable local small-variant projections in source alleles crossing unresolved territory. Complete units are never recovered from a target-site list or external callset.
+- Bound normalization by source flanks, close touching units, and verify joint physical sequence replay to prevent independent repeat-copy edits from collapsing.
+- Validate no overlapping or duplicate called ALT edits, complete catalogue genotypes, final VCF replay, and the dependency/code/input identities used by each run.
+
 ## 0.1.0rc2
 
 * Define per-ALT edit `TYPE` separately from the 50-bp `SIZECLASS` boundary, including large equal-length MNVs and unequal replacements.
