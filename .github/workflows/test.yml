@@ -1,0 +1,32 @@
+name: tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  core:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install 1.82.0 --profile minimal --component rustfmt,clippy
+      - run: cargo +1.82.0 fmt --all -- --check
+      - run: cargo +1.82.0 clippy --locked --all-targets -- -D warnings
+      - run: cargo +1.82.0 test --locked
+      - run: cargo +1.82.0 package --locked
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install 1.82.0 --profile minimal
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: environments/calling.yml
+          cache-environment: true
+      - shell: bash -el {0}
+        run: |
+          cargo +1.82.0 install --path . --locked
+          bash environments/build_native.sh
+          pathallele doctor --aligner "$PWD/tools/pathallele-align"
+          PATHALLELE_ALIGNER="$PWD/tools/pathallele-align" cargo +1.82.0 test --release --locked --test integration -- --ignored --test-threads=1

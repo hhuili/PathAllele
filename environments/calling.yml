@@ -1,0 +1,12 @@
+name: pathallele
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - minimap2=2.30
+  - bcftools=1.22
+  - samtools=1.22.1
+  - vcflib=1.0.15
+  - cxx-compiler
+  - curl

@@ -1,0 +1,10 @@
+target/
+tools/
+input/
+output/
+qa/
+logs/
+source_release.json
+00_run.sh
+PROJECT.md
+.DS_Store
