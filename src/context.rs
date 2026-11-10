@@ -12,7 +12,6 @@ use std::path::Path;
 #[derive(Clone, Debug)]
 pub struct Alignment {
     pub identity: String,
-    pub path: String,
     pub reverse: bool,
     pub qs: usize,
     pub qe: usize,
@@ -105,7 +104,6 @@ pub fn read_alignments(path: &Path, min_mapq: u32) -> Result<HashMap<String, Vec
         }
         result.entry(f[0].into()).or_default().push(Alignment {
             identity: format!("M{:08}", i + 1),
-            path: f[0].into(),
             reverse,
             qs: start,
             qe: q,
@@ -327,16 +325,17 @@ pub fn plan(
     let length = sequence.len();
     let walk = graph.paths[path].nodes.clone();
     let reverse_walk: Vec<_> = walk.iter().rev().map(|n| -n).collect();
+    let reverse_query = io::reverse_complement(&sequence);
     let oriented = [
         Oriented {
             offsets: offsets(&graph.nodes, &walk),
             walk,
-            query: sequence.clone(),
+            query: sequence,
         },
         Oriented {
             offsets: offsets(&graph.nodes, &reverse_walk),
             walk: reverse_walk,
-            query: io::reverse_complement(&sequence),
+            query: reverse_query,
         },
     ];
     let unique = [

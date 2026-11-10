@@ -394,12 +394,49 @@ fn small_graph(root: &Path, text: &str) -> Result<Graph, String> {
     Graph::read(
         &root.join("graph.gfa"),
         &root.join("reference.fa"),
-        &root.join("samples.txt"),
+        Some(&root.join("samples.txt")),
         None,
         None,
     )
 }
 const GFA:&str="H\tVN:Z:1.1\nS\talpha\tACGT\nS\tomega\tTGCA\nL\talpha\t+\tomega\t+\t0M\nP\tref#0#chr\talpha+,omega+\t*\nP\ts#1#ctg\talpha+,omega+\t*\n";
+
+#[test]
+fn automatic_cohort_excludes_reference_and_groups_contigs() {
+    let t = temporary();
+    let gfa = format!("{GFA}P\ts#1#second\talpha+,omega+\t*\nP\tother\talpha+,omega+\t*\n");
+    small_graph(&t.path, &gfa).unwrap();
+    let read = |samples: Option<&Path>, map: Option<&Path>| {
+        Graph::read(
+            &t.path.join("graph.gfa"),
+            &t.path.join("reference.fa"),
+            samples,
+            None,
+            map,
+        )
+        .unwrap()
+    };
+    let all = read(None, None);
+    assert_eq!(all.samples, ["s", "other"]);
+    assert_eq!(
+        all.sample_paths.iter().map(Vec::len).collect::<Vec<_>>(),
+        [2, 1]
+    );
+    fs::write(t.path.join("subset.txt"), "other\ns\n").unwrap();
+    assert_eq!(
+        read(Some(&t.path.join("subset.txt")), None).samples,
+        ["other", "s"]
+    );
+    fs::write(
+        t.path.join("map.tsv"),
+        "path\tsample\ns#1#ctg\tcustom\ns#1#second\tcustom\nother\tanother\n",
+    )
+    .unwrap();
+    assert_eq!(
+        read(None, Some(&t.path.join("map.tsv"))).samples,
+        ["custom", "another"]
+    );
+}
 #[test]
 fn malformed_and_unsupported_gfa_fail_with_line_number() {
     let t = temporary();
@@ -555,7 +592,6 @@ fn complete_vcf_preserves_boundary_padding_projection_and_reference_only_loci() 
         alts: vec![],
         cells: String::new(),
         links: String::new(),
-        status_order: vec![0, 1],
         status_counts: vec![],
         gt,
         projected,

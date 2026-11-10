@@ -662,67 +662,6 @@ impl Plan {
         }
         Ok(())
     }
-    pub fn validate(&self, output: &Path, data: &Catalogue, chrom: &str) -> Result<()> {
-        use std::io::BufRead;
-        let mut reader = variant::Reader::open(&output.join(VCF))?;
-        if !reader.header.sample_names().iter().eq(data.samples.iter()) {
-            return Err("Structural sample order differs".into());
-        }
-        for g in &self.groups {
-            let row = reader
-                .next_record()?
-                .ok_or("Missing structural VCF record")?;
-            if row.id != g.id || row.chrom != chrom || row.gt != g.gt || row.ft != g.status {
-                return Err(
-                    "Structural genotype or record identity disagrees with catalogue".into(),
-                );
-            }
-        }
-        if reader.next_record()?.is_some() {
-            return Err("Unexpected structural record".into());
-        }
-        let lines = io::reader(&output.join(VCF))?
-            .lines()
-            .filter_map(|l| match l {
-                Ok(s) if !s.starts_with('#') => Some(Ok(s)),
-                Err(e) => Some(Err(e.to_string())),
-                _ => None,
-            })
-            .collect::<Result<Vec<_>>>()?;
-        if lines
-            != self
-                .groups
-                .iter()
-                .map(|g| Self::line(g, chrom))
-                .collect::<Vec<_>>()
-        {
-            return Err(
-                "Structural coordinates, alleles, counts or status contract differs".into(),
-            );
-        }
-        let mut table = csv::ReaderBuilder::new()
-            .delimiter(b'\t')
-            .from_reader(io::reader(&output.join(MEMBERS))?);
-        if !table
-            .headers()
-            .map_err(|e| e.to_string())?
-            .iter()
-            .eq(COLUMNS)
-        {
-            return Err("Invalid structural membership header".into());
-        }
-        let actual = table
-            .records()
-            .map(|r| {
-                r.map(|r| r.iter().map(str::to_string).collect())
-                    .map_err(|e| e.to_string())
-            })
-            .collect::<Result<Vec<Vec<String>>>>()?;
-        if actual != self.member_rows(data) {
-            return Err("Structural allele membership differs".into());
-        }
-        Ok(())
-    }
     pub fn summary(&self) -> serde_json::Value {
         serde_json::json!({"schema":1,"groups":self.groups.len(),"unique_exact_seed_alleles":self.seed_count,"merged_groups":self.groups.iter().filter(|g|g.seeds.len()>1).count(),"similarity_percent":SIMILARITY,"scope":"Structural allele analysis units, not independent ancestral events"})
     }

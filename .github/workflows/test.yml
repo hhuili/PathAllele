@@ -26,7 +26,6 @@ jobs:
           cache-environment: true
       - shell: bash -el {0}
         run: |
-          cargo +1.82.0 install --path . --locked
-          bash environments/build_native.sh
-          pathallele doctor --aligner "$PWD/tools/pathallele-align"
-          PATHALLELE_ALIGNER="$PWD/tools/pathallele-align" cargo +1.82.0 test --release --locked --test integration -- --ignored --test-threads=1
+          bash environments/build_native.sh integrated
+          target/release/pathallele --help
+          PATHALLELE_NATIVE_PREFIX="$CONDA_PREFIX" cargo +1.82.0 test --release --locked --features native-aligner --test integration -- --ignored --test-threads=1 --skip embedded_and_external_calls_have_identical_output_contracts

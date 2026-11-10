@@ -332,8 +332,7 @@ impl Annotation {
                 || s.start >= e.end
                 || s.end <= e.start
                 || (self.basis != "PATH_AND_RC" && core.end - core.start < minimum)
-                || alternate.get(s.query..s.query_end)
-                    != Some(io::reverse_complement(&s.template).as_str())
+                || alternate.get(s.query..s.query_end) != Some(reversed.as_str())
                 || !seen.insert((s.start, s.end, s.query, s.query_end))
             {
                 return Err("Invalid inversion sequence witness".into());

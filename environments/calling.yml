@@ -9,4 +9,3 @@ dependencies:
   - samtools=1.22.1
   - vcflib=1.0.15
   - cxx-compiler
-  - curl

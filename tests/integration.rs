@@ -1,4 +1,4 @@
-//! Native CLI tests use independently constructed sequences, never caller models.
+// Native CLI truth is constructed independently of caller models.
 use pathallele::{
     catalogue::{Catalogue, Temporary},
     io,
@@ -7,7 +7,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     io::{BufRead, Write},
-    path::{Path, PathBuf},
+    path::Path,
     process::{Command, Output},
 };
 struct Rng(u64);
@@ -28,11 +28,6 @@ fn temporary() -> Temporary {
 }
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_pathallele")
-}
-fn aligner() -> PathBuf {
-    std::env::var_os("PATHALLELE_ALIGNER")
-        .expect("Set PATHALLELE_ALIGNER and activate the native calling environment")
-        .into()
 }
 fn success(command: &mut Command) -> Output {
     let x = command.output().unwrap();
@@ -78,8 +73,7 @@ fn write_fixture(
 }
 fn command(input: &Path, output: &Path, threads: usize) -> Command {
     let mut c = Command::new(bin());
-    c.arg("call")
-        .arg("--graph")
+    c.arg("--graph")
         .arg(input.join("graph.gfa"))
         .arg("--reference")
         .arg(input.join("reference.fa"))
@@ -87,8 +81,6 @@ fn command(input: &Path, output: &Path, threads: usize) -> Command {
         .arg(input.join("samples.txt"))
         .arg("--output")
         .arg(output)
-        .arg("--aligner")
-        .arg(aligner())
         .args(["--threads", &threads.to_string(), "--jobs", "1"]);
     c
 }
@@ -229,7 +221,6 @@ fn invalid_resource_settings_fail_before_io() {
     ] {
         let x = Command::new(bin())
             .args([
-                "call",
                 "--graph",
                 "absent",
                 "--reference",
@@ -237,8 +228,6 @@ fn invalid_resource_settings_fail_before_io() {
                 "--samples",
                 "absent",
                 "--output",
-                "absent",
-                "--aligner",
                 "absent",
                 key,
                 value,
@@ -251,13 +240,32 @@ fn invalid_resource_settings_fail_before_io() {
 }
 
 #[test]
-#[ignore = "Requires native tools and PATHALLELE_ALIGNER"]
-fn snv_indel_reverse_paths_resume_export_and_portable_validation() {
+#[ignore = "Requires native tools and native-aligner feature"]
+fn snv_indel_reverse_paths_resume_and_output_audit() {
     let t = temporary();
     let input = t.path.join("input with spaces");
     let output = t.path.join("output with spaces");
     let (reference, truth) = simple(&input, false);
     success(&mut command(&input, &output, 2));
+    let automatic = t.path.join("automatic cohort");
+    success(
+        Command::new(bin())
+            .arg("-g")
+            .arg(input.join("graph.gfa"))
+            .arg("-r")
+            .arg(input.join("reference.fa"))
+            .arg("-o")
+            .arg(&automatic)
+            .args(["-t", "2", "-j", "1"])
+            .env("PATHALLELE_ALIGNER", "/absent/obsolete-adapter"),
+    );
+    assert_eq!(
+        independent_reconstruction(&automatic.join("Graph.vcf.gz"), &reference).0,
+        truth
+    );
+    assert!(!automatic.join("validation.json").exists());
+    assert!(!automatic.join("work/prepared.bin").exists());
+    assert!(!automatic.join("work/positive.bin").exists());
     assert_eq!(
         independent_reconstruction(&output.join("Graph.vcf.gz"), &reference).0,
         truth
@@ -306,78 +314,23 @@ fn snv_indel_reverse_paths_resume_export_and_portable_validation() {
             .code(),
         Some(2)
     );
-    let exported = t.path.join("complete.vcf");
-    success(
-        Command::new(bin())
-            .arg("export")
-            .arg(&output)
-            .arg("--reference")
-            .arg(input.join("reference.fa"))
-            .arg("--vcf")
-            .arg(&exported),
-    );
-    assert_eq!(independent_reconstruction(&exported, &reference).0, truth);
-    success(
-        Command::new("bcftools")
-            .arg("view")
-            .args(["-Oz", "-o"])
-            .arg(t.path.join("complete.vcf.gz"))
-            .arg(&exported),
-    );
-    success(
-        Command::new("bcftools")
-            .args(["index", "-t"])
-            .arg(t.path.join("complete.vcf.gz")),
-    );
-    let relocated = t.path.join("relocated");
-    fs::rename(&input, &relocated).unwrap();
-    success(
-        Command::new(bin())
-            .arg("validate")
-            .arg(&output)
-            .arg("--graph")
-            .arg(relocated.join("graph.gfa"))
-            .arg("--reference")
-            .arg(relocated.join("reference.fa"))
-            .arg("--samples")
-            .arg(relocated.join("samples.txt")),
+    assert_eq!(
+        independent_reconstruction(&output.join("Graph.loci.vcf.gz"), &reference).0,
+        truth
     );
     fs::remove_dir_all(output.join("work")).unwrap();
-    fs::remove_dir_all(relocated).unwrap();
-    let portable = success(
-        Command::new(bin())
-            .arg("validate")
-            .arg(&output)
-            .arg("--outputs-only"),
-    );
-    let portable: serde_json::Value = serde_json::from_slice(&portable.stdout).unwrap();
-    let schema: serde_json::Value =
-        serde_json::from_slice(&fs::read(output.join("schema.json")).unwrap()).unwrap();
-    assert_eq!(portable["schema"], schema["version"]);
-    assert_eq!(
-        portable["classification_schema"],
-        schema["classification"]["version"]
-    );
+    fs::remove_dir_all(&input).unwrap();
     let mut f = fs::OpenOptions::new()
         .append(true)
         .open(output.join("Graph.loci.tsv.gz"))
         .unwrap();
     f.write_all(b"corrupt").unwrap();
-    assert_eq!(
-        Command::new(bin())
-            .arg("validate")
-            .arg(&output)
-            .arg("--outputs-only")
-            .output()
-            .unwrap()
-            .status
-            .code(),
-        Some(2)
-    );
+    let manifest = serde_json::from_slice(&fs::read(output.join("run.json")).unwrap()).unwrap();
+    assert!(pathallele::cli::verify_manifest(&output, &manifest, true).is_err());
 }
 
 #[test]
-#[ignore = "Requires native tools and PATHALLELE_ALIGNER"]
+#[ignore = "Requires native tools and native-aligner feature"]
 fn all_reference_has_valid_empty_vcf_and_catalogue() {
     let t = temporary();
     let input = t.path.join("input");
@@ -392,12 +345,6 @@ fn all_reference_has_valid_empty_vcf_and_catalogue() {
         .unwrap()
         .loci
         .is_empty());
-    success(
-        Command::new(bin())
-            .arg("validate")
-            .arg(&output)
-            .arg("--outputs-only"),
-    );
 }
 
 fn structural(root: &Path, n: usize, transform: &str) -> (String, BTreeMap<String, String>) {
@@ -513,7 +460,7 @@ fn structural(root: &Path, n: usize, transform: &str) -> (String, BTreeMap<Strin
     (reference, truth)
 }
 #[test]
-#[ignore = "Requires native tools and PATHALLELE_ALIGNER"]
+#[ignore = "Requires native tools and native-aligner feature"]
 fn bounded_inversions_and_graph_representation_invariance() {
     let t = temporary();
     let mut baseline = None;
@@ -566,7 +513,7 @@ fn bounded_inversions_and_graph_representation_invariance() {
     }
 }
 #[test]
-#[ignore = "Requires native tools and PATHALLELE_ALIGNER"]
+#[ignore = "Requires native tools and native-aligner feature"]
 fn unresolved_structures_preserve_unique_local_sequence_but_not_competing_copies() {
     let t = temporary();
     for transform in ["complex", "repeat"] {
@@ -604,7 +551,7 @@ fn unresolved_structures_preserve_unique_local_sequence_but_not_competing_copies
 }
 
 #[test]
-#[ignore = "Requires native tools and PATHALLELE_ALIGNER"]
+#[ignore = "Requires native tools and native-aligner feature"]
 fn compound_haplotypes_keep_complete_gt_and_unknown_sequence() {
     let t = temporary();
     let input = t.path.join("input");
@@ -677,23 +624,7 @@ fn compound_haplotypes_keep_complete_gt_and_unknown_sequence() {
     assert!(catalogue.gt(li, 2) > 0);
     assert_eq!(catalogue.projected(li, 2), 0);
     assert_eq!(catalogue.gt(li, 3), -1);
-    success(
-        Command::new(bin())
-            .arg("validate")
-            .arg(&output)
-            .arg("--outputs-only"),
-    );
-    let exported = t.path.join("complete.vcf");
-    success(
-        Command::new(bin())
-            .arg("export")
-            .arg(&output)
-            .arg("--reference")
-            .arg(input.join("reference.fa"))
-            .arg("--vcf")
-            .arg(&exported),
-    );
-    let mut vcf = pathallele::variant::Reader::open(&exported).unwrap();
+    let mut vcf = pathallele::variant::Reader::open(&output.join("Graph.loci.vcf.gz")).unwrap();
     let mut found = false;
     let mut previous = 0;
     while let Some(r) = vcf.next_record().unwrap() {
@@ -707,23 +638,16 @@ fn compound_haplotypes_keep_complete_gt_and_unknown_sequence() {
         }
     }
     assert!(found);
-    // The adapter is executed even if no partial source happens to require it.
-    let fake = t.path.join("fake-aligner");
-    fs::write(&fake, "#!/bin/sh\nexit 0\n").unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(&fake, fs::Permissions::from_mode(0o700)).unwrap();
-    assert!(!Command::new(bin())
-        .arg("doctor")
-        .arg("--aligner")
-        .arg(fake)
-        .output()
-        .unwrap()
-        .status
-        .success());
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(output.join("run.json")).unwrap()).unwrap();
+    assert_eq!(
+        manifest["signature"]["tools"]["align_alleles"]["backend"],
+        "embedded-vcflib-wfa2"
+    );
 }
 
 #[test]
-#[ignore = "Requires native tools and PATHALLELE_ALIGNER"]
+#[ignore = "Requires native tools and native-aligner feature"]
 fn structural_groups_pool_sequence_subtypes_without_changing_exact_calls() {
     for (size, expected) in [(84, vec![0, 1, 1]), (120, vec![0, 1, -1])] {
         let t = temporary();
@@ -786,14 +710,6 @@ fn structural_groups_pool_sequence_subtypes_without_changing_exact_calls() {
             matching[0].info["AC"],
             expected.iter().filter(|&&g| g == 1).count().to_string()
         );
-        success(
-            Command::new(bin())
-                .arg("validate")
-                .arg(&output)
-                .arg("--outputs-only"),
-        );
-        let data = Catalogue::open(&output, reference.len()).unwrap();
-        let p = pathallele::structure::Plan::new(&output, &data).unwrap();
         let members = output.join(pathallele::structure::MEMBERS);
         let original = io::reader(&members)
             .unwrap()
@@ -806,6 +722,80 @@ fn structural_groups_pool_sequence_subtypes_without_changing_exact_calls() {
         w.write_all(original.replace("SEED", "INVALID").as_bytes())
             .unwrap();
         w.finish().unwrap();
-        assert!(p.validate(&output, &data, "ref").is_err());
+        let manifest = serde_json::from_slice(&fs::read(output.join("run.json")).unwrap()).unwrap();
+        assert!(pathallele::cli::verify_manifest(&output, &manifest, true).is_err());
     }
+}
+
+#[test]
+#[cfg(feature = "native-aligner")]
+#[ignore = "Requires native tools, native-aligner and PATHALLELE_BASELINE_CALLER/ALIGNER"]
+fn embedded_and_external_calls_have_identical_output_contracts() {
+    let t = temporary();
+    let input = t.path.join("input");
+    simple(&input, false);
+    let embedded = t.path.join("embedded");
+    let external = t.path.join("external");
+    success(&mut command(&input, &embedded, 2));
+    let baseline = std::env::var_os("PATHALLELE_BASELINE_CALLER")
+        .expect("Set PATHALLELE_BASELINE_CALLER to the frozen v0.1.0 executable");
+    let baseline_aligner = std::env::var_os("PATHALLELE_BASELINE_ALIGNER")
+        .expect("Set PATHALLELE_BASELINE_ALIGNER to the frozen adapter");
+    success(
+        Command::new(baseline)
+            .arg("call")
+            .arg("--graph")
+            .arg(input.join("graph.gfa"))
+            .arg("--reference")
+            .arg(input.join("reference.fa"))
+            .arg("--samples")
+            .arg(input.join("samples.txt"))
+            .arg("--output")
+            .arg(&external)
+            .args(["--threads", "2", "--jobs", "1"])
+            .arg("--aligner")
+            .arg(baseline_aligner),
+    );
+    for name in [
+        "Graph.vcf.gz",
+        "Graph.loci.vcf.gz",
+        "Graph.sv.vcf.gz",
+        "Graph.paths.tsv.gz",
+        "Graph.alleles.tsv.gz",
+        "Graph.loci.tsv.gz",
+        "Graph.projection_links.tsv.gz",
+        "Graph.sv_members.tsv.gz",
+    ] {
+        let read = |root: &Path| {
+            io::reader(&root.join(name))
+                .unwrap()
+                .lines()
+                .collect::<std::io::Result<Vec<_>>>()
+                .unwrap()
+                .into_iter()
+                // Provenance records the version and run-specific paths/dates.
+                // Retain every other header and every record for parity checking.
+                .filter(|line| {
+                    ![
+                        "##source=PathAllele-",
+                        "##bcftools_normCommand=",
+                        "##bcftools_pluginCommand=",
+                        "##bcftools_viewCommand=",
+                    ]
+                    .iter()
+                    .any(|prefix| line.starts_with(prefix))
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(read(&embedded), read(&external), "{name}");
+    }
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(embedded.join("run.json")).unwrap()).unwrap();
+    assert_eq!(
+        manifest["signature"]["tools"]["align_alleles"]["backend"],
+        "embedded-vcflib-wfa2"
+    );
+    let ext: serde_json::Value =
+        serde_json::from_slice(&fs::read(external.join("run.json")).unwrap()).unwrap();
+    assert!(ext["signature"]["tools"]["align_alleles"]["backend"].is_null());
 }

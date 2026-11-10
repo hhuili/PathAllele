@@ -96,7 +96,7 @@ impl Graph {
     pub fn read(
         gfa: &Path,
         reference: &Path,
-        sample_file: &Path,
+        sample_file: Option<&Path>,
         reference_name: Option<&str>,
         path_map: Option<&Path>,
     ) -> Result<Self> {
@@ -112,53 +112,6 @@ impl Graph {
         {
             return Err("Invalid reference sequence/VCF contig identifier".into());
         }
-        let mut samples = Vec::new();
-        let mut sample_index = HashMap::new();
-        for line in io::reader(sample_file)?.lines() {
-            let line = line.map_err(|e| e.to_string())?;
-            if line.starts_with('#') || line.trim().is_empty() {
-                continue;
-            }
-            let name = line.trim();
-            if name == chrom
-                || name.chars().any(char::is_whitespace)
-                || sample_index.contains_key(name)
-            {
-                return Err("Samples must be unique non-reference haploid identifiers".into());
-            }
-            sample_index.insert(name.to_string(), samples.len());
-            samples.push(name.to_string());
-        }
-        if samples.is_empty() {
-            return Err("Samples must be nonempty".into());
-        }
-        let explicit = if let Some(path) = path_map {
-            let mut input = csv::ReaderBuilder::new()
-                .delimiter(b'\t')
-                .from_reader(io::reader(path)?);
-            let headers = input.headers().map_err(|e| e.to_string())?.clone();
-            let pi = headers
-                .iter()
-                .position(|x| x == "path")
-                .ok_or("Path map needs path/sample columns")?;
-            let si = headers
-                .iter()
-                .position(|x| x == "sample")
-                .ok_or("Path map needs path/sample columns")?;
-            let mut map = HashMap::new();
-            for row in input.records() {
-                let row = row.map_err(|e| e.to_string())?;
-                let sample = sample_index
-                    .get(&row[si])
-                    .ok_or("Undeclared sample in path map")?;
-                if map.insert(row[pi].to_string(), *sample).is_some() {
-                    return Err("Duplicate explicit sample path".into());
-                }
-            }
-            Some(map)
-        } else {
-            None
-        };
         let mut nodes = vec![Node {
             name: String::new(),
             sequence: String::new(),
@@ -166,6 +119,7 @@ impl Graph {
         let mut names = HashMap::new();
         let mut namespace = HashSet::new();
         let mut edges = HashSet::new();
+        let mut inferred_paths = Vec::new();
         rows(gfa, |_, f| {
             match f[0] {
                 "H" => {
@@ -178,6 +132,9 @@ impl Graph {
                     }
                 }
                 "S" | "P" => {
+                    if f[0] == "P" && sample_file.is_none() {
+                        inferred_paths.push(f[1].to_string());
+                    }
                     if !valid_name(f[1]) || !namespace.insert(f[1].to_string()) {
                         return Err("Invalid or duplicate segment/path name".into());
                     }
@@ -219,6 +176,86 @@ impl Graph {
         if nodes[1..].iter().any(|n| n.sequence.is_empty()) {
             return Err("GFA links reference undefined segments".into());
         }
+        let mut samples = Vec::new();
+        let mut sample_index = HashMap::new();
+        let requested = if let Some(path) = sample_file {
+            io::reader(path)?
+                .lines()
+                .map(|line| line.map_err(|e| e.to_string()))
+                .collect::<Result<Vec<_>>>()?
+        } else if let Some(path) = path_map {
+            let mut input = csv::ReaderBuilder::new()
+                .delimiter(b'\t')
+                .from_reader(io::reader(path)?);
+            let si = input
+                .headers()
+                .map_err(|e| e.to_string())?
+                .iter()
+                .position(|x| x == "sample")
+                .ok_or("Path map needs path/sample columns")?;
+            input
+                .records()
+                .map(|r| r.map(|r| r[si].to_string()).map_err(|e| e.to_string()))
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            inferred_paths
+                .into_iter()
+                .filter(|name| {
+                    !reference_name.map_or_else(
+                        || name == &chrom || name.starts_with(&format!("{chrom}#")),
+                        |r| name == r,
+                    )
+                })
+                .map(|name| name.split('#').next().unwrap().to_string())
+                .collect()
+        };
+        for line in requested {
+            if line.starts_with('#') || line.trim().is_empty() {
+                continue;
+            }
+            let name = line.trim();
+            if sample_file.is_none() && sample_index.contains_key(name) {
+                continue;
+            }
+            if name == chrom
+                || name.chars().any(char::is_whitespace)
+                || sample_index.contains_key(name)
+            {
+                return Err("Samples must be unique non-reference haploid identifiers".into());
+            }
+            sample_index.insert(name.to_string(), samples.len());
+            samples.push(name.to_string());
+        }
+        if samples.is_empty() {
+            return Err("Samples must be nonempty".into());
+        }
+        let explicit = if let Some(path) = path_map {
+            let mut input = csv::ReaderBuilder::new()
+                .delimiter(b'\t')
+                .from_reader(io::reader(path)?);
+            let headers = input.headers().map_err(|e| e.to_string())?.clone();
+            let pi = headers
+                .iter()
+                .position(|x| x == "path")
+                .ok_or("Path map needs path/sample columns")?;
+            let si = headers
+                .iter()
+                .position(|x| x == "sample")
+                .ok_or("Path map needs path/sample columns")?;
+            let mut map = HashMap::new();
+            for row in input.records() {
+                let row = row.map_err(|e| e.to_string())?;
+                let sample = sample_index
+                    .get(&row[si])
+                    .ok_or("Undeclared sample in path map")?;
+                if map.insert(row[pi].to_string(), *sample).is_some() {
+                    return Err("Duplicate explicit sample path".into());
+                }
+            }
+            Some(map)
+        } else {
+            None
+        };
         let mut tokens = HashMap::new();
         for (name, &id) in &names {
             tokens.insert(format!("{name}+"), id);

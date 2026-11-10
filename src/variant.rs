@@ -4,7 +4,7 @@ use crate::{
     catalogue, classify,
     graph::Graph,
     io,
-    model::{self, dna, EditInput, Result},
+    model::{self, dna, Result},
     project::{Projection, STATUS},
     source::{count, Sources, Stats},
 };
@@ -220,7 +220,7 @@ pub fn project(
     work: &Path,
     minimum: usize,
     threads: usize,
-) -> Result<Vec<Vec<EditInput>>> {
+) -> Result<()> {
     let mut ambiguity = io::tsv(&output.join("Graph.alignment_ambiguity.tsv.gz"))?;
     ambiguity
         .write_record([
@@ -445,7 +445,7 @@ pub fn project(
         &output.join("summary.projection.json"),
         &json!({"method":"native_path_projection","samples":sources.samples.len(),"counts":counts}),
     )?;
-    Ok(engine.positives())
+    Ok(())
 }
 
 pub fn finish_vcf(output: &Path, reference: &Path, work: &Path) -> Result<()> {

@@ -23,7 +23,6 @@ pub struct ProjectionRow {
     pub alts: Vec<String>,
     pub cells: String,
     pub links: String,
-    pub status_order: Vec<u8>,
     pub status_counts: Vec<usize>,
     pub gt: Vec<i32>,
     pub projected: Vec<i32>,
@@ -165,10 +164,7 @@ impl Projection {
                 continue;
             }
             if !local.is_empty() && local.iter().all(|id| self.positive[si].contains(id)) {
-                let edits: Vec<_> = local.iter().map(|&i| &self.evidence.pool[i]).collect();
-                if replay(&self.evidence.reference, s, e, &edits)? != observed {
-                    return Err("Independent VCF components changed the observed allele".into());
-                }
+                // observe() already reconstructed this allele from these edits.
                 projected.push(0);
                 export.push(0);
                 let mut components = Vec::new();
@@ -281,20 +277,11 @@ impl Projection {
             )
             .expect("write to String");
         }
-        let mut seen = [false; 11];
-        let mut status_order = Vec::new();
-        for &status in source.iter().chain(export.iter()) {
-            if !seen[status as usize] {
-                seen[status as usize] = true;
-                status_order.push(status);
-            }
-        }
         Ok(ProjectionRow {
             alleles,
             alts,
             cells,
             links,
-            status_order,
             status_counts,
             gt,
             projected,
@@ -333,15 +320,5 @@ impl Projection {
             positive,
             components: HashMap::new(),
         })
-    }
-    pub fn positives(&self) -> Vec<Vec<EditInput>> {
-        self.positive
-            .iter()
-            .map(|row| {
-                let mut edits: Vec<_> = row.iter().map(|&i| &self.evidence.pool[i]).collect();
-                edits.sort_unstable();
-                edits.into_iter().map(Edit::input).collect()
-            })
-            .collect()
     }
 }

@@ -69,7 +69,7 @@ fn fixture(reference: &[i32], query: &[i32]) -> (Temporary, Graph) {
     let g = Graph::read(
         &t.path.join("graph.gfa"),
         &t.path.join("reference.fa"),
-        &t.path.join("samples.txt"),
+        Some(&t.path.join("samples.txt")),
         None,
         None,
     )
@@ -80,7 +80,6 @@ fn alignment(id: &str, runs: &[(usize, usize, usize)]) -> Alignment {
     let (a, b) = (runs[0], runs[runs.len() - 1]);
     Alignment {
         identity: id.into(),
-        path: "sample#1#ctg".into(),
         reverse: false,
         qs: a.0,
         qe: b.1,

@@ -170,7 +170,7 @@ pub fn atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 pub fn checkpoint<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let temporary = path.with_extension("tmp");
     let mut out = BufWriter::new(File::create(&temporary).map_err(|e| e.to_string())?);
-    out.write_all(b"PATHALLELE\0WORK\x01")
+    out.write_all(b"PATHALLELE\0WORK\x02")
         .map_err(|e| e.to_string())?;
     bincode::serialize_into(&mut out, value).map_err(|e| e.to_string())?;
     out.flush().map_err(|e| e.to_string())?;
@@ -182,8 +182,8 @@ pub fn load_checkpoint<T: DeserializeOwned>(path: &Path) -> Result<T> {
     let file = File::open(path).map_err(|e| e.to_string())?;
     let length = file.metadata().map_err(|e| e.to_string())?.len();
     let mut data = BufReader::new(file);
-    let prefix = b"PATHALLELE\0WORK\x01";
-    let mut magic = [0; b"PATHALLELE\0WORK\x01".len()];
+    let prefix = b"PATHALLELE\0WORK\x02";
+    let mut magic = [0; b"PATHALLELE\0WORK\x02".len()];
     data.read_exact(&mut magic).map_err(|e| e.to_string())?;
     if magic != *prefix {
         return Err("Unsupported work checkpoint schema".into());
@@ -203,7 +203,4 @@ pub fn tsv(path: &Path) -> Result<csv::Writer<Output>> {
         .delimiter(b'\t')
         .terminator(csv::Terminator::Any(b'\n'))
         .from_writer(writer(path)?))
-}
-pub fn create_new(path: &Path) -> io::Result<File> {
-    OpenOptions::new().write(true).create_new(true).open(path)
 }

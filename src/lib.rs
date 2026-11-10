@@ -1,3 +1,4 @@
+pub mod alignment;
 pub mod alleles;
 pub mod anchors;
 pub mod catalogue;
@@ -10,5 +11,4 @@ pub mod model;
 pub mod project;
 pub mod source;
 pub mod structure;
-pub mod validate;
 pub mod variant;

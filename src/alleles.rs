@@ -1,5 +1,6 @@
 //! Complete allele units, canonical normalization and conservative partial projection.
 use crate::{
+    alignment::Adapter,
     anchors::{self, Anchor},
     io,
     model::{self, atomic_edits, dna, intersects, replay, Coverage, Edit, Ranges, Result},
@@ -410,7 +411,7 @@ fn align(
     chrom: &str,
     work: &Path,
     jobs: usize,
-    executable: &Path,
+    executable: &Adapter,
 ) -> Result<Decomposition> {
     fs::create_dir(work).map_err(|e| e.to_string())?;
     let mut gaps = BTreeMap::new();
@@ -460,7 +461,8 @@ fn align(
         (0..jobs)
             .into_par_iter()
             .map(|j| {
-                let status = Command::new(executable)
+                let status = executable
+                    .command()
                     .arg(work.join(format!("{j}.alleles.vcf")))
                     .env("OMP_NUM_THREADS", "1")
                     .env("OPENBLAS_NUM_THREADS", "1")
@@ -580,7 +582,7 @@ fn partial(
     reference_path: &Path,
     work: &Path,
     jobs: usize,
-    executable: &Path,
+    executable: &Adapter,
 ) -> Result<BTreeMap<(usize, usize), Partial>> {
     let mut requested = BTreeMap::new();
     let mut subset = vec![];
@@ -831,14 +833,11 @@ pub fn validate_models(
 #[derive(Serialize, Deserialize)]
 pub struct Prepared {
     pub parents: Vec<Parent>,
-    pub edits: Decomposition,
-    pub partial: BTreeMap<(usize, usize), Partial>,
     pub models: Models,
     pub origins: OriginMap,
     pub event_kinds: KindMap,
     pub known: Coverage,
     pub ambiguous: Vec<Ranges>,
-    pub model_validation: Stats,
     pub ambiguity_rows: Vec<(String, usize, usize, usize)>,
 }
 #[allow(clippy::too_many_arguments)]
@@ -849,7 +848,7 @@ pub fn prepare(
     reference_path: &Path,
     work: &Path,
     jobs: usize,
-    executable: &Path,
+    executable: &Adapter,
     sequence_anchor: usize,
 ) -> Result<Prepared> {
     fs::create_dir(work).map_err(|e| e.to_string())?;
@@ -1080,7 +1079,6 @@ pub fn prepare(
         .map(|v| Ranges::new(v, reference.len()))
         .collect::<Result<_>>()?;
     let model_validation = validate_models(&parents, &models, reference, &known, &ambiguous)?;
-    io::json(&work.join("model_validation.json"), &model_validation)?;
     io::progress(format!(
         "[projection] {} partial sources; {} model promotions; {}",
         partial.len(),
@@ -1089,14 +1087,11 @@ pub fn prepare(
     ));
     Ok(Prepared {
         parents,
-        edits,
-        partial,
         models,
         origins,
         event_kinds,
         known,
         ambiguous,
-        model_validation,
         ambiguity_rows,
     })
 }

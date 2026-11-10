@@ -1,0 +1,45 @@
+{% set name = "pathallele" %}
+{% set version = "0.2.0.dev20261110" %}
+
+package:
+  name: {{ name }}
+  version: {{ version }}
+
+source:
+  path: ..
+
+build:
+  number: 0
+  skip: true  # [not linux or not x86_64]
+
+requirements:
+  build:
+    - {{ compiler('rust') }}
+    - {{ compiler('cxx') }}
+    - cargo-bundle-licenses
+  host:
+    - vcflib =1.0.15
+    - htslib
+  run:
+    - {{ pin_compatible('vcflib', exact=True) }}
+    - minimap2 =2.30
+    - bcftools =1.22
+    - samtools =1.22.1
+
+test:
+  commands:
+    - pathallele --version
+    - pathallele --help
+
+about:
+  home: https://github.com/hhuili/PathAllele
+  license: MIT
+  license_file:
+    - LICENSE
+    - THIRDPARTY.yml
+    - native/wfa2_headers/LICENSE
+  summary: Source-resolved haploid variants from pangenome graph paths
+
+extra:
+  recipe-maintainers:
+    - hhuili

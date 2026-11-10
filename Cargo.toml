@@ -1,12 +1,16 @@
 [package]
 name = "pathallele"
-version = "0.1.0"
+version = "0.2.0-dev.20261110"
 edition = "2021"
 rust-version = "1.82"
 license = "MIT"
 description = "Source-resolved haploid variants from pangenome graph paths"
 repository = "https://github.com/hhuili/PathAllele"
-include = ["src/**", "native/**", "tests/**", "examples/demo/**", "environments/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "THIRD_PARTY.md", "CHANGELOG.md", "CITATION.cff", "pathallele.1"]
+include = ["src/**", "native/**", "tests/**", "examples/demo/**", "environments/**", "recipe/**", "build.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "THIRD_PARTY.md", "CHANGELOG.md", "CITATION.cff", "pathallele.1"]
+
+[features]
+default = []
+native-aligner = []
 
 [dependencies]
 clap = { version = "=4.5.51", features = ["derive"] }
@@ -31,3 +35,4 @@ noodles-bgzf = "=0.35.0"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+strip = "symbols"
