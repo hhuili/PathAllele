@@ -9,7 +9,7 @@ exact variants and structural allele groups as indexed VCFs.
 Install the Linux x86-64 development build from the personal Conda channel:
 
 ```sh
-conda create -n pathallele --override-channels -c conda-forge -c hhuili -c bioconda pathallele=0.2.0.dev20261110
+conda create -n pathallele --override-channels -c conda-forge -c bioconda -c hhuili pathallele=0.2.0.dev20261110
 conda activate pathallele
 pathallele -g graph.gfa -r ref.fa -o out
 ```
@@ -31,8 +31,9 @@ export PATH="$PWD/target/release:$PATH"
 pathallele -g examples/demo/graph.gfa -r examples/demo/reference.fa \
     -o calls -t 2 -j 2
 
-# Inspect options
-pathallele --help
+# Inspect options and output formats
+pathallele -h
+man ./pathallele.1
 ```
 
 The calling algorithm is implemented in Rust. Mapping uses minimap2; VCF processing uses
@@ -56,9 +57,8 @@ loaded libraries remain recorded in `run.json`. Bioconda builds enable
 `native-aligner`; compilers are build dependencies, not user prerequisites.
 
 Calling requires the `native-aligner` build feature. Manual native
-builds use `PATHALLELE_NATIVE_PREFIX` (or `CONDA_PREFIX`). The dependency environment
-provides vcflib/WFA2 libraries and their matching headers; no third-party headers
-are bundled in this repository. Use a C++ compiler compatible with the installed
+builds use `PATHALLELE_NATIVE_PREFIX` (or `CONDA_PREFIX`); pinned interface headers
+are included in the source. Use a C++ compiler compatible with the installed
 vcflib ABI; `PATHALLELE_CXX11_ABI` defaults to `1` for the pinned Conda libraries.
 The adapter embeds the existing vcflib/WFA2 backend, not a Rust reimplementation
 of BiWFA. The isolated internal worker protects the main process from upstream
@@ -99,33 +99,8 @@ compatible sequence subtypes under a fixed 95% similarity rule.
 Use complete-locus GT for sequence identity. Event GT=0 can contain changes
 represented at linked records; overlapping complete loci are separate sequence
 views. Structural groups are analysis units, not inferred ancestral events.
-Unresolved observations remain missing. VCF positions are 1-based; TSV intervals
-are 0-based and half-open. All genotypes are haploid; `.` means missing, and
-`FT` explains the source status. `AC/AN/AF` exclude missing calls.
-
-Complete-locus `GT` and `PG` index the sequence dictionary in `Graph.loci.tsv.gz`
-(`locus_id`, `allele_index`, with 0 for REF), not the event VCF's ALT order.
-Structural-group `GT` is 1 for presence, 0 for supported absence, or `.` for
-insufficient/conflicting evidence. Absence requires complete sequence coverage
-of the group; event `GT=0` alone is insufficient. In `Graph.sv_members.tsv.gz`,
-`SEED` rows identify emitted SV alleles and `COMPLETE` rows identify additional
-compatible complete alleles, which may lack an event allele index.
-
-Allele classification uses trimmed sequences: `REPLACEMENT` has nonempty,
-unequal-length REF and ALT, and `SIZECLASS=SV` requires a larger trimmed allele
-of at least 50 bp. `INV` requires an exact same-interval reverse complement;
-`INV_COMPLEX` retains an inverted component with additional changes or shifted
-boundaries. Sequence-only inversion evidence requires a unique informative
-reverse core of at least 31 bp.
-
-Structural groups use complete-link clustering with compatible classes and
-inversion axes, endpoint distances within 5% of the shorter span (bounded to
-1–50 bp), and at least 95% reference-span, ALT-length and sequence similarity.
-Sequences are compared in a common reference frame; deletions compare deleted
-sequence. Approximate non-deletion groups must be distinguishable from the
-reference beyond that distance budget. Insertions at different positions
-require a closed common frame to merge. `COMPLEX` receives exact deduplication
-only, and an additional complete allele must uniquely match every group member.
+Unresolved observations remain missing. File semantics and grouping rules are
+in [pathallele.1](pathallele.1).
 
 Keep `work/` for resume. Independent sequence fixtures and frozen-output comparisons run in the
 integration tests; production calls do not repeat a whole-run audit. Supported inputs

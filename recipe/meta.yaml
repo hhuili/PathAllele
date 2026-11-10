@@ -9,7 +9,7 @@ source:
   path: ..
 
 build:
-  number: 1
+  number: 0
   skip: true  # [not linux or not x86_64]
 
 requirements:
@@ -18,7 +18,7 @@ requirements:
     - {{ compiler('cxx') }}
     - cargo-bundle-licenses
   host:
-    - vcflib 1.0.15 *_2
+    - vcflib =1.0.15
     - htslib
   run:
     - {{ pin_compatible('vcflib', exact=True) }}
@@ -37,7 +37,7 @@ about:
   license_file:
     - LICENSE
     - THIRDPARTY.yml
-    - THIRD_PARTY.md
+    - native/wfa2_headers/LICENSE
   summary: Source-resolved haploid variants from pangenome graph paths
 
 extra:

@@ -1,9 +1,11 @@
-use std::{env, path::PathBuf, process::Command};
+use std::{env, fs, path::PathBuf, process::Command};
 
 fn main() {
     println!("cargo:rerun-if-changed=native/align_alleles.cpp");
+    println!("cargo:rerun-if-changed=native/wfa2_headers");
     for key in [
         "PATHALLELE_NATIVE_PREFIX",
+        "PATHALLELE_WFA_HEADERS",
         "CONDA_PREFIX",
         "CXX",
         "AR",
@@ -19,8 +21,13 @@ fn main() {
             .or_else(|| env::var_os("CONDA_PREFIX"))
             .expect("native-aligner requires PATHALLELE_NATIVE_PREFIX or CONDA_PREFIX"),
     );
+    let headers = env::var_os("PATHALLELE_WFA_HEADERS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("native/wfa2_headers")
+        });
     let prefix = prefix.canonicalize().expect("native dependency prefix");
-    let headers = prefix.join("include/wfa2lib");
+    let headers = headers.canonicalize().expect("WFA2 headers");
     assert!(
         prefix.join("include/vcflib/Variant.h").is_file(),
         "Missing vcflib headers"
@@ -30,6 +37,15 @@ fn main() {
         "Missing WFA2 headers"
     );
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    fs::create_dir_all(out.join("htslib")).unwrap();
+    let shim = out.join("htslib/htslib");
+    let htslib = prefix.join("include/htslib");
+    if fs::read_link(&shim).ok().as_ref() != Some(&htslib) {
+        if fs::symlink_metadata(&shim).is_ok() {
+            fs::remove_file(&shim).expect("Replace generated htslib include symlink");
+        }
+        std::os::unix::fs::symlink(htslib, &shim).unwrap();
+    }
     let object = out.join("align_alleles.o");
     let mut cxx = Command::new(env::var_os("CXX").unwrap_or_else(|| "c++".into()));
     let abi = env::var("PATHALLELE_CXX11_ABI").unwrap_or_else(|_| "1".into());
@@ -43,6 +59,7 @@ fn main() {
         .arg("-o")
         .arg(&object);
     for include in [
+        &out,
         &prefix.join("include/vcflib"),
         &prefix.join("include"),
         &headers,

@@ -1,0 +1,174 @@
+.TH PATHALLELE 1 "2026-11-10" "PathAllele 0.2.0-dev.20261110" "Bioinformatics tools"
+.SH NAME
+pathallele \- haploid variant calling from assembled graph paths
+.SH SYNOPSIS
+.B pathallele
+.BI -g " graph.gfa"
+.BI -r " reference.fa"
+.BI -o " directory"
+.RI [ options ]
+.SH DESCRIPTION
+PathAllele resolves physical sequence occurrences in haploid assembly paths,
+calls complete local alleles and projects exact events to the reference.
+Graph homology is combined with separately bounded minimap2 alignment
+components
+and unique exact sequence anchors. Ambiguous copies, unbounded junctions and
+unresolved sequence are retained as missing observations.
+.PP
+An independently bounded local call may remain resolved inside broader
+uncertain
+structure only when one source chain covers the interval and both flanks.
+Adjacent chains are not joined to satisfy this requirement.
+.PP
+Calling uses the built-in vcflib/WFA2 backend. Native shared libraries are
+installed by the package manager; no external alignment executable is required.
+The native-aligner build feature is required for calling.
+.SH OPTIONS
+.TP
+.BI "-g, --graph " FILE
+GFA1 with explicit IUPAC segment sequences, P paths and 0M links. All graph
+paths
+are validated, including paths outside the selected cohort.
+.TP
+.BI "-r, --reference " FILE
+One A/C/G/T FASTA sequence matching one complete graph path.
+.TP
+.BI "-s, --samples " FILE
+Optional non-reference haploid sample subset/order, one ID per line.
+Without this option, select all non-reference samples in first-path order
+(first-row order with --path-map). Multiple contigs per sample are allowed;
+multiple haplotypes per sample are not.
+.TP
+.BI "-o, --output " DIR
+New output directory. Existing results are not overwritten.
+.TP
+.BI --path-map " FILE"
+Tab-delimited path-to-sample map with a header containing path and sample.
+Default: sample#haplotype#contig (PanSN) path names.
+.TP
+.BI --reference-path " STR"
+Explicit reference GFA path. Default: infer from the reference sequence.
+.TP
+.B --resume
+Resume only when input, executable, dependency and option identities match.
+The original work directory is required. A completed run is hash-checked.
+.TP
+.BI "-t, --threads " INT
+Mapping, source-processing and compression worker threads [16].
+.TP
+.BI "-j, --jobs " INT
+Concurrent external allele-alignment jobs [8].
+.TP
+.BI --minimum-anchor " INT"
+Minimum source/graph homology anchor length in bp; at least 19 [31].
+.TP
+.BI "-k, --mapping-k " INT
+Minimap2 and fallback exact-seed k-mer length; at least 19 [19].
+.TP
+.BI --maximum-graph-gap " INT"
+Maximum graph-context anchor chaining gap in bp [1000].
+.TP
+.BI --sequence-anchor " INT"
+Exact-sequence anchor length within source alleles in bp; at least 19 [31].
+.TP
+.BI "-q, --minimum-mapq " INT
+Minimum source-alignment MAPQ, from 0 to 60 [20].
+.TP
+.BI --max-matrix-gb " FLOAT"
+Numeric genotype row-buffer budget in GiB [8]. This is not a process memory
+limit; graph and source models require additional memory.
+.TP
+.BI --mapping-batch-bases " INT"
+Minimap2 query mini-batch size in bases [50000000].
+.TP
+.BI --mapping-cache-bytes " INT"
+Release minimap2 per-thread cache above this many bytes; zero disables release
+[50000000].
+.SH FILE FORMATS
+VCF positions are 1-based. TSV intervals are 0-based and half-open.
+All VCF genotypes are haploid; a dot denotes missing data.
+.TP
+.B Graph.vcf.gz
+Exact event projection. GT indexes this record's REF/ALT; FT records why a
+genotype is missing. GT=0 is an event backbone, which can contain changes
+represented at other linked records. AC/AN/AF exclude missing calls.
+.TP
+.B Graph.loci.vcf.gz
+All complete loci, including reference-only records. GT/FT describe the
+observed
+complete sequence and source status; PG/PF describe its event projection.
+GT and PG index Graph.loci.tsv.gz, not the event VCF ALT order.
+Overlapping loci are separate sequence views and cannot all be replayed as
+independent edits on one reference.
+.TP
+.B Graph.loci.tsv.gz
+Complete sequence dictionary indexed by locus_id and allele_index; index 0 is
+REF.
+.TP
+.B Graph.variant_annotations.tsv.gz
+Unified allele classification and exact inversion sequence witnesses.
+.TP
+.B Graph.sv.vcf.gz
+Symbolic structural groups. GT is 1 for presence, 0 for supported absence or a
+dot for insufficient/conflicting evidence; FT records source status. Exact
+member sequences are retained in the complete catalogue.
+.TP
+.B Graph.sv_members.tsv.gz
+Maps structure_id to locus_id, complete allele_index and event_allele_index.
+SEED rows are emitted SV alleles; COMPLETE rows are additional compatible
+complete alleles. Event indexes can be absent for COMPLETE members.
+.TP
+.B Graph.paths.tsv.gz, Graph.alleles.tsv.gz, Graph.anchors.tsv.gz
+Physical source occurrences, allele sequences and homology anchors.
+Graph.nodes.tsv.gz maps signed internal handles to original GFA segment IDs.
+.TP
+.B Graph.projection_links.tsv.gz
+Component records supporting a complete allele's event projection.
+.TP
+.B run.json, schema.json
+Input/tool SHA256 identities, execution metrics, resume identities and output schema.
+Work checkpoints are private versioned data, not an interchange format.
+.SH CLASSIFICATION AND STRUCTURAL GROUPS
+TYPE distinguishes SNV, MNV, INS, DEL, REPLACEMENT, INV, INV_COMPLEX and
+COMPLEX.
+SEQTYPE records sequence shape independently. REPLACEMENT has nonempty,
+unequal-length REF and ALT edits. SIZECLASS is SV when the larger trimmed
+allele
+is at least 50 bp. INV requires an exact same-interval reverse complement;
+INV_COMPLEX retains an inverted component with additional changes or shifted
+boundaries. Sequence-only inversion evidence requires a unique informative
+reverse core of at least 31 bp. These labels do not determine mutation
+history.
+.PP
+Structural groups are seeded from emitted SV alleles without using phenotype
+or
+frequency. Deterministic complete-link clustering requires compatible classes
+and inversion axes, endpoint distances at most 5% of the shorter span (bounded
+to 1-50 bp), and at least 95% reference-span, ALT-length and sequence
+similarity.
+Sequences are compared in a common reference frame; deletions compare deleted
+sequence. Approximate non-deletion groups must be separated from the reference
+background beyond the same distance budget. Insertions at different positions
+are not merged without a closed common frame. COMPLEX receives exact
+deduplication only. An additional complete allele must uniquely match every
+member of the group.
+.PP
+Structural absence uses a complete member locus covering the group's envelope,
+never projected event GT=0 alone. Conflicting positive and negative evidence
+remains missing. Groups are statistical analysis units, not ancestral events.
+.SH LIMITATIONS
+One linear reference and haploid assembly paths are supported.
+Diploid/polyploid
+calling, W walks, overlapping segments and circular reference coordinates are
+not supported. Memory grows with graph size and sample count. Some inversions
+with additional sequence changes remain unresolved upstream. Validation checks
+implemented source-consistency contracts; it does not establish whole-genome
+completeness or independent biological sensitivity and specificity.
+.SH EXIT STATUS
+Zero on success; two for invalid input, sequence consistency failures or execution errors.
+.SH SEE ALSO
+.BR minimap2 (1),
+.BR bcftools (1),
+.BR samtools (1)
+.PP
+https://github.com/hhuili/PathAllele
