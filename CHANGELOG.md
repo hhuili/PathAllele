@@ -2,6 +2,11 @@
 
 ## 0.2.0 development (2026-11-10)
 
+- Remove the standalone man page; keep usage and output semantics in `--help`
+  and README.
+- Conda build 1 uses vcflib build 2 development files; remove bundled WFA2
+  headers and the HTSlib include-path workaround.
+
 - Use `pathallele -g graph.gfa -r ref.fa -o out` directly; remove `call`,
   `validate`, `export`, `doctor` and the legacy adapter build command.
 - Select all non-reference samples by default; `-s` remains an optional subset/order.

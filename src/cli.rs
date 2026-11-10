@@ -27,7 +27,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
     about = "Call source-resolved haploid variants from GFA paths",
     arg_required_else_help = true,
     help_template = "{name} {version}\n{about}\n\nUsage: {usage}\n\n{all-args}{after-help}",
-    after_help = "Example: pathallele -g graph.gfa -r ref.fa -o out\nKeep out/work/ for --resume. See pathallele.1 for file formats."
+    after_help = "Example: pathallele -g graph.gfa -r ref.fa -o out\nKeep out/work/ for --resume. See README.md for file formats."
 )]
 struct Call {
     #[arg(
