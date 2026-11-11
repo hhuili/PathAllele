@@ -11,10 +11,6 @@ order alone is insufficient. The method combines occurrence evidence with comple
 alleles, sequence replay and conservative missing calls. These latter operations
 are also available in other assembly-based callers.
 
-See the [diagram](docs/algorithm_20261110/PathAllele_panel_a.pdf),
-[method](docs/algorithm_20261110/ALGORITHM.zh-CN.md) and
-[mapping assessment](docs/algorithm_20261110/MAPPING_ASSESSMENT.zh-CN.md).
-
 ## Installation
 
 Linux x86-64 development build:
