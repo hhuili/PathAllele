@@ -4,8 +4,8 @@ PathAllele calls haploid variants from assembly pangenome graphs. It currently
 targets small genomes, primarily EBV graphs built with PGGB. Other viral genomes
 are intended applications; large eukaryotic pangenomes have not been benchmarked.
 
-A path in a cyclic graph may revisit a node. PathAllele tracks each **occurrence**:
-one visit to an oriented node on a path, with its step and sequence offset.
+A path in a cyclic graph may revisit a node. PathAllele tracks each **path step**:
+one occurrence of an oriented node on a path, with its step index and sequence offset.
 Mapping and path context resolve reference correspondence; node identity or visit
 order alone is insufficient. The method combines occurrence evidence with complete
 alleles, sequence replay and conservative missing calls. These latter operations
@@ -18,7 +18,7 @@ decomposition boundaries before variant classification.
 Published Linux x86-64 build:
 
 ```sh
-conda create -n pathallele --override-channels -c conda-forge -c bioconda -c hhuili pathallele=0.2.0.dev20261110
+conda create -n pathallele --override-channels -c conda-forge -c bioconda -c hhuili pathallele=0.2.0.dev20261111
 conda activate pathallele
 ```
 

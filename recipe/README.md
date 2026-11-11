@@ -15,7 +15,7 @@ The recipe currently targets Linux x86-64. It is not a `noarch` package: the ins
 Install the Linux development package from https://anaconda.org/hhuili/pathallele:
 
 ```sh
-conda create -n pathallele --override-channels -c conda-forge -c bioconda -c hhuili pathallele=0.2.0.dev20261110
+conda create -n pathallele --override-channels -c conda-forge -c bioconda -c hhuili pathallele=0.2.0.dev20261111
 conda activate pathallele
 pathallele --help
 ```
