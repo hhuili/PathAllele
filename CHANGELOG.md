@@ -1,5 +1,13 @@
 # Changes
 
+## 0.2.0-dev.20261111
+
+- Remove the standalone manual page; keep usage in CLI help and README.
+- Define sequence units from complete source alleles before projection. Local reverse-complement evidence constrains graph and sequence cuts, including partial alignment rescue, so short forward matches cannot fragment supported inversion components.
+- Keep source orientation evidence distinct from sequence classification; sequence-only support remains `NATIVE=SEQUENCE`.
+- Add a PGGB-derived inversion regression with equivalent fragmented, unshared and cyclic representations, plus controls for remote copies, short reversals, multiple inversions and nonunique sequence evidence.
+
+
 ## 0.2.0 development (2026-11-10)
 
 - Use `pathallele -g graph.gfa -r ref.fa -o out` directly; remove `call`,

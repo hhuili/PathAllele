@@ -1,12 +1,12 @@
 [package]
 name = "pathallele"
-version = "0.2.0-dev.20261110"
+version = "0.2.0-dev.20261111"
 edition = "2021"
 rust-version = "1.82"
 license = "MIT"
 description = "Source-resolved haploid variants from pangenome graph paths"
 repository = "https://github.com/hhuili/PathAllele"
-include = ["src/**", "native/**", "tests/**", "examples/demo/**", "environments/**", "recipe/**", "build.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "THIRD_PARTY.md", "CHANGELOG.md", "CITATION.cff", "pathallele.1"]
+include = ["src/**", "native/**", "tests/**", "examples/demo/**", "environments/**", "recipe/**", "build.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "THIRD_PARTY.md", "CHANGELOG.md", "CITATION.cff"]
 
 [features]
 default = []

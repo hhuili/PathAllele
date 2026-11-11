@@ -8,6 +8,7 @@ pub mod context;
 pub mod graph;
 pub mod io;
 pub mod model;
+pub mod partition;
 pub mod project;
 pub mod source;
 pub mod structure;

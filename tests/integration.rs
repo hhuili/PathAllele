@@ -799,3 +799,120 @@ fn embedded_and_external_calls_have_identical_output_contracts() {
         serde_json::from_slice(&fs::read(external.join("run.json")).unwrap()).unwrap();
     assert!(ext["signature"]["tools"]["align_alleles"]["backend"].is_null());
 }
+
+#[test]
+#[ignore = "Requires native tools and native-aligner feature"]
+fn fragmented_sequence_inversion_survives_partition_and_graph_representation() {
+    // PGGB 0.7.4 graph of deterministic synthetic assemblies (seed 11112026):
+    // 60-bp local RC plus TT->AC; 5-kb flanks and two 1.2-kb repeat copies.
+    // -n 2 -p 90 -s 500 -l 500 -c 4 -K 19 -k 23 -G 700,1100.
+    // Independent truth is the prescribed sequence transformation, not the
+    // caller's edits or annotations. The other graphs are representation controls.
+    let gfa = include_str!("data/fragmented_inversion.gfa");
+    let nodes: BTreeMap<_, _> = gfa
+        .lines()
+        .filter_map(|l| {
+            let t: Vec<_> = l.split('\t').collect();
+            (t[0] == "S").then(|| (t[1].to_string(), t[2].to_string()))
+        })
+        .collect();
+    let paths: BTreeMap<_, _> = gfa
+        .lines()
+        .filter_map(|l| {
+            let t: Vec<_> = l.split('\t').collect();
+            (t[0] == "P").then(|| {
+                (
+                    t[1].to_string(),
+                    t[2].split(',').map(str::to_string).collect::<Vec<_>>(),
+                )
+            })
+        })
+        .collect();
+    let spell = |walk: &[String]| {
+        walk.iter()
+            .map(|s| {
+                assert!(s.ends_with('+'));
+                nodes[&s[..s.len() - 1]].clone()
+            })
+            .collect::<String>()
+    };
+    let reference = spell(&paths["REF#1#chr"]);
+    let mut alternate = reference.clone();
+    alternate.replace_range(6200..6202, "AC");
+    alternate.replace_range(6202..6262, &io::reverse_complement(&reference[6202..6262]));
+    assert_eq!(spell(&paths["ALT#1#chr"]), alternate);
+    let t = temporary();
+    let mut paf = None;
+    for mode in ["fragmented", "unshared", "cyclic"] {
+        let input = t.path.join(format!("input_{mode}"));
+        let output = t.path.join(format!("output_{mode}"));
+        if mode == "fragmented" {
+            write_fixture(
+                &input,
+                &reference,
+                &nodes.clone().into_iter().collect::<Vec<_>>(),
+                &paths.clone().into_iter().collect::<Vec<_>>(),
+                &["ALT".into()],
+            );
+        } else {
+            let (nn, rw, aw) = if mode == "unshared" {
+                (
+                    vec![
+                        ("l".into(), reference[..6200].into()),
+                        ("r".into(), reference[6262..].into()),
+                        ("ref".into(), reference[6200..6262].into()),
+                        ("alt".into(), alternate[6200..6262].into()),
+                    ],
+                    vec!["l+", "ref+", "r+"],
+                    vec!["l+", "alt+", "r+"],
+                )
+            } else {
+                (
+                    vec![
+                        ("l".into(), reference[..5000].into()),
+                        ("x".into(), reference[5000..6200].into()),
+                        ("r".into(), reference[7462..].into()),
+                        ("ref".into(), reference[6200..6262].into()),
+                        ("alt".into(), alternate[6200..6262].into()),
+                    ],
+                    vec!["l+", "x+", "ref+", "x+", "r+"],
+                    vec!["l+", "x+", "alt+", "x+", "r+"],
+                )
+            };
+            write_fixture(
+                &input,
+                &reference,
+                &nn,
+                &[
+                    (
+                        "REF#1#chr".into(),
+                        rw.into_iter().map(str::to_string).collect(),
+                    ),
+                    (
+                        "ALT#1#chr".into(),
+                        aw.into_iter().map(str::to_string).collect(),
+                    ),
+                ],
+                &["ALT".into()],
+            );
+        }
+        success(command(&input, &output, 1).args(["--reference-path", "REF#1#chr"]));
+        let rebuilt = independent_reconstruction(&output.join("Graph.vcf.gz"), &reference).0;
+        assert_eq!(rebuilt, BTreeMap::from([("ALT".into(), alternate.clone())]));
+        let rows: Vec<_> = io::reader(&output.join("Graph.vcf.gz"))
+            .unwrap()
+            .lines()
+            .map(Result::unwrap)
+            .filter(|l| !l.starts_with('#'))
+            .collect();
+        assert_eq!(rows.len(), 1, "{mode}: {rows:?}");
+        assert!(rows[0].contains("TYPE=INV_COMPLEX;"), "{mode}: {}", rows[0]);
+        assert!(rows[0].contains("NATIVE=SEQUENCE;INVBASIS=LOCAL_RC;"));
+        let alignment = fs::read(output.join("work/context.paf")).unwrap();
+        if let Some(expected) = &paf {
+            assert_eq!(&alignment, expected);
+        } else {
+            paf = Some(alignment);
+        }
+    }
+}

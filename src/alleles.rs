@@ -1,9 +1,9 @@
 //! Complete allele units, canonical normalization and conservative partial projection.
 use crate::{
     alignment::Adapter,
-    anchors::{self, Anchor},
-    io,
+    anchors, io,
     model::{self, atomic_edits, dna, intersects, replay, Coverage, Edit, Ranges, Result},
+    partition::{self, Plan},
     source::{count, Parent, Sources, Stats},
 };
 use rayon::prelude::*;
@@ -44,36 +44,6 @@ fn absolute(e: &Edit, offset: usize) -> Edit {
     }
 }
 
-pub fn reverse_parents(parents: &[Parent]) -> Vec<Parent> {
-    parents
-        .iter()
-        .map(|p| {
-            let mut r = p.clone();
-            r.alleles = p
-                .alleles
-                .iter()
-                .map(|s| io::reverse_complement(s))
-                .collect();
-            r.anchors = p
-                .anchors
-                .iter()
-                .zip(&p.alleles)
-                .map(|(aa, s)| {
-                    aa.iter()
-                        .rev()
-                        .map(|a| Anchor {
-                            r: p.alleles[0].len() - a.r - a.n,
-                            q: s.len() - a.q - a.n,
-                            n: a.n,
-                            node: a.node,
-                        })
-                        .collect()
-                })
-                .collect();
-            r
-        })
-        .collect()
-}
 fn reflect(parents: &[Parent], raw: Decomposition) -> Decomposition {
     parents
         .iter()
@@ -94,20 +64,21 @@ fn reflect(parents: &[Parent], raw: Decomposition) -> Decomposition {
         })
         .collect()
 }
-pub fn decompose(parents: &[Parent]) -> Result<Decomposition> {
-    let mut result = empty(parents);
-    for (p, ee) in parents.iter().zip(&mut result) {
+pub fn decompose(plan: &Plan) -> Result<Decomposition> {
+    let mut result = empty(&plan.parents);
+    for ((p, units), ee) in plan.parents.iter().zip(&plan.units).zip(&mut result) {
         for (ai, a) in p.alleles.iter().enumerate().skip(1) {
-            if matches!(p.kinds[ai].as_str(), "INV" | "COMPLEX") {
-                ee[ai] = vec![Edit {
-                    start: 1,
-                    end: p.alleles[0].len() - 1,
-                    alt: a[1..a.len() - 1].into(),
-                    complex: true,
-                }];
-            } else {
-                for (s, r, a) in anchors::gaps(&p.alleles[0], a, &p.anchors[ai])? {
-                    ee[ai].extend(atomic_edits(s, r, a, !r.is_empty() && !a.is_empty()));
+            for u in &units[ai] {
+                let (rf, al) = (&p.alleles[0][u.r..u.r + u.rn], &a[u.q..u.q + u.qn]);
+                if u.preserve {
+                    ee[ai].push(Edit {
+                        start: u.r,
+                        end: u.r + u.rn,
+                        alt: al.into(),
+                        complex: true,
+                    });
+                } else {
+                    ee[ai].extend(atomic_edits(u.r, rf, al, !rf.is_empty() && !al.is_empty()));
                 }
             }
             if local_replay(&p.alleles[0], &ee[ai])? != *a {
@@ -407,23 +378,35 @@ fn close_touching(reference: &str, edits: &[Edit]) -> Result<Vec<Edit>> {
 }
 
 fn align(
-    parents: &[Parent],
+    plan: &Plan,
     chrom: &str,
     work: &Path,
     jobs: usize,
     executable: &Adapter,
 ) -> Result<Decomposition> {
+    let parents = &plan.parents;
     fs::create_dir(work).map_err(|e| e.to_string())?;
     let mut gaps = BTreeMap::new();
     let mut tasks = vec![];
     for (pi, p) in parents.iter().enumerate() {
         for ai in 1..p.alleles.len() {
-            if p.kinds[ai] != "SEQUENCE" {
-                continue;
-            }
-            let parts = anchors::gaps(&p.alleles[0], &p.alleles[ai], &p.anchors[ai])?;
+            let parts: Vec<_> = plan.units[pi][ai]
+                .iter()
+                .map(|u| {
+                    (
+                        u.r,
+                        &p.alleles[0][u.r..u.r + u.rn],
+                        &p.alleles[ai][u.q..u.q + u.qn],
+                    )
+                })
+                .collect();
             for (segment, &(_, r, a)) in parts.iter().enumerate() {
-                if !r.is_empty() && !a.is_empty() && dna(r) && dna(a) {
+                if !plan.units[pi][ai][segment].preserve
+                    && !r.is_empty()
+                    && !a.is_empty()
+                    && dna(r)
+                    && dna(a)
+                {
                     tasks.push((r.len() + a.len(), pi, ai, segment));
                 }
             }
@@ -488,8 +471,8 @@ fn align(
     }
     let mut result = empty(parents);
     for (&(pi, ai), parts) in &gaps {
-        for &(s, r, a) in parts {
-            if !dna(r) || !dna(a) {
+        for (segment, &(s, r, a)) in parts.iter().enumerate() {
+            if plan.units[pi][ai][segment].preserve || !dna(r) || !dna(a) {
                 result[pi][ai].push(Edit {
                     start: s,
                     end: s + r.len(),
@@ -547,14 +530,6 @@ fn align(
     }
     for (p, aa) in parents.iter().zip(&mut result) {
         for (ai, es) in aa.iter_mut().enumerate() {
-            if matches!(p.kinds[ai].as_str(), "INV" | "COMPLEX") {
-                *es = vec![Edit {
-                    start: 1,
-                    end: p.alleles[0].len() - 1,
-                    alt: p.alleles[ai][1..p.alleles[ai].len() - 1].into(),
-                    complex: true,
-                }];
-            }
             if local_replay(&p.alleles[0], es)? != p.alleles[ai] {
                 return Err(format!(
                     "BiWFA decomposition failed source replay: {}:{ai}",
@@ -574,7 +549,7 @@ pub struct Partial {
 }
 #[allow(clippy::too_many_arguments)]
 fn partial(
-    parents: &[Parent],
+    plan: &Plan,
     complete: &Decomposition,
     known: &Coverage,
     reference: &str,
@@ -584,6 +559,7 @@ fn partial(
     jobs: usize,
     executable: &Adapter,
 ) -> Result<BTreeMap<(usize, usize), Partial>> {
+    let parents = &plan.parents;
     let mut requested = BTreeMap::new();
     let mut subset = vec![];
     for (pi, (p, aa)) in parents.iter().zip(complete).enumerate() {
@@ -601,11 +577,7 @@ fn partial(
             if selected.is_empty() {
                 continue;
             }
-            let mut v = p.clone();
-            v.alleles = vec![p.alleles[0].clone(), p.alleles[ai].clone()];
-            v.anchors = vec![p.anchors[0].clone(), p.anchors[ai].clone()];
-            v.kinds = vec!["REFERENCE".into(), p.kinds[ai].clone()];
-            subset.push(v);
+            subset.push((pi, ai));
             requested.insert(
                 (pi, ai),
                 Partial {
@@ -619,12 +591,13 @@ fn partial(
     if requested.is_empty() {
         return Ok(requested);
     }
+    let subset = plan.select(&subset);
     fs::create_dir(work).map_err(|e| e.to_string())?;
     let f = align(&subset, chrom, &work.join("forward"), jobs, executable)?;
     let r = reflect(
-        &subset,
+        &subset.parents,
         align(
-            &reverse_parents(&subset),
+            &subset.reversed(),
             chrom,
             &work.join("reverse"),
             jobs,
@@ -632,7 +605,7 @@ fn partial(
         )?,
     );
     let (f, _) = normalize(
-        &subset,
+        &subset.parents,
         &f,
         reference,
         chrom,
@@ -640,14 +613,20 @@ fn partial(
         &work.join("normalized_forward"),
     )?;
     let (r, _) = normalize(
-        &subset,
+        &subset.parents,
         &r,
         reference,
         chrom,
         reference_path,
         &work.join("normalized_reverse"),
     )?;
-    for (((p, fw), rv), entry) in subset.iter().zip(f).zip(r).zip(requested.values_mut()) {
+    for (((p, fw), rv), entry) in subset
+        .parents
+        .iter()
+        .zip(f)
+        .zip(r)
+        .zip(requested.values_mut())
+    {
         entry.positions = disagreements(reference, p.start, &fw[1], &rv[1]);
         entry.edits = fw[1].clone();
     }
@@ -850,41 +829,21 @@ pub fn prepare(
     jobs: usize,
     executable: &Adapter,
     sequence_anchor: usize,
+    minimum_inversion: usize,
 ) -> Result<Prepared> {
     fs::create_dir(work).map_err(|e| e.to_string())?;
     let known = Coverage::new(&sources.coverage, &sources.uncertain, reference.len())?;
-    let mut primitive = sources.parents.clone();
-    for p in &mut primitive {
-        for ai in 0..p.alleles.len() {
-            p.anchors[ai] = anchors::context_runs(
-                &p.alleles[0],
-                &p.alleles[ai],
-                p.anchors[ai].clone(),
-                1,
-                None,
-            )?
-            .into_iter()
-            .flat_map(|r| r.payload)
-            .collect();
-        }
-    }
-    let mut parents = sources.parents.clone();
-    for (p, q) in parents.iter_mut().zip(&primitive) {
-        for ai in 0..p.alleles.len() {
-            if p.kinds[ai] == "SEQUENCE" {
-                p.anchors[ai] = anchors::refine(
-                    &p.alleles[0],
-                    &p.alleles[ai],
-                    &q.anchors[ai],
-                    sequence_anchor,
-                )?;
-            }
-        }
-    }
-    let forward = decompose(&parents)?;
-    let raw_reverse = reflect(&parents, decompose(&reverse_parents(&parents))?);
+    let (plan, primitive) = partition::build(
+        &sources.parents,
+        reference,
+        sequence_anchor,
+        minimum_inversion,
+    )?;
+    let parents = &plan.parents;
+    let forward = decompose(&plan)?;
+    let raw_reverse = reflect(parents, decompose(&plan.reversed())?);
     let (mut edits, ff) = normalize(
-        &parents,
+        parents,
         &forward,
         reference,
         chrom,
@@ -892,7 +851,7 @@ pub fn prepare(
         &work.join("normalized_forward"),
     )?;
     let (mut reverse, rf) = normalize(
-        &parents,
+        parents,
         &raw_reverse,
         reference,
         chrom,
@@ -901,7 +860,7 @@ pub fn prepare(
     )?;
     let mut failed: Keys = ff.union(&rf).copied().collect();
     let (sf, sr, compound) = preserve(
-        &parents,
+        parents,
         &forward,
         &raw_reverse,
         &edits,
@@ -911,7 +870,7 @@ pub fn prepare(
     )?;
     if compound > 0 {
         let (f, ff) = normalize(
-            &parents,
+            parents,
             &sf,
             reference,
             chrom,
@@ -920,7 +879,7 @@ pub fn prepare(
         )?;
         edits = f;
         let (r, rf) = normalize(
-            &parents,
+            parents,
             &sr,
             reference,
             chrom,
@@ -1078,7 +1037,7 @@ pub fn prepare(
         .into_iter()
         .map(|v| Ranges::new(v, reference.len()))
         .collect::<Result<_>>()?;
-    let model_validation = validate_models(&parents, &models, reference, &known, &ambiguous)?;
+    let model_validation = validate_models(parents, &models, reference, &known, &ambiguous)?;
     io::progress(format!(
         "[projection] {} partial sources; {} model promotions; {}",
         partial.len(),
@@ -1086,7 +1045,7 @@ pub fn prepare(
         serde_json::to_string(&model_validation).map_err(|e| e.to_string())?
     ));
     Ok(Prepared {
-        parents,
+        parents: plan.parents,
         models,
         origins,
         event_kinds,

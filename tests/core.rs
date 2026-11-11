@@ -335,7 +335,8 @@ fn mixed_complete_units_do_not_require_gapped_alignment() {
         carriers: vec![vec![]; 3],
         kinds: vec!["REFERENCE".into(), "SEQUENCE".into(), "SEQUENCE".into()],
     };
-    let e = alleles::decompose(&[p.clone()]).unwrap();
+    let (plan, _) = pathallele::partition::build(&[p.clone()], &p.alleles[0], 31, 31).unwrap();
+    let e = alleles::decompose(&plan).unwrap();
     assert_eq!(e[0][1].len(), 1);
     assert!(e[0][1][0].complex);
     assert_eq!(

@@ -10,10 +10,12 @@ Mapping and path context resolve reference correspondence; node identity or visi
 order alone is insufficient. The method combines occurrence evidence with complete
 alleles, sequence replay and conservative missing calls. These latter operations
 are also available in other assembly-based callers.
+Within each complete source allele, local reverse-complement evidence constrains
+decomposition boundaries before variant classification.
 
 ## Installation
 
-Linux x86-64 development build:
+Published Linux x86-64 build:
 
 ```sh
 conda create -n pathallele --override-channels -c conda-forge -c bioconda -c hhuili pathallele=0.2.0.dev20261110
@@ -63,7 +65,7 @@ normalization uses bcftools. See [dependency notices](THIRD_PARTY.md).
 
 Sequence GT and event GT describe different views; missing does not mean reference.
 Replay checks sequence consistency, not biological accuracy. SV clusters are not
-inferred ancestral mutations. Keep `work/` for resume. See [pathallele.1](pathallele.1).
+inferred ancestral mutations. Keep `work/` for resume.
 
 The caller is single-reference and haploid. GFA `W` walks, segment overlaps,
 diploid/polyploid genotyping and circular reference coordinates are unsupported.
